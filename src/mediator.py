@@ -42,10 +42,17 @@ class Mediator:
         # Round 3: Synthesis
         logger.info("Starting Round 3: Synthesis")
         all_outputs = round1_outputs + round2_outputs
-        all_output_dicts = [o.model_dump() for o in all_outputs]
 
-        system, user = build_synthesis_prompt(problem, all_output_dicts)
-        synthesis_result = self.client.analyze(system, user)
+        synthesis_result = {}
+        if all_outputs:
+            all_output_dicts = [o.model_dump() for o in all_outputs]
+            system, user = build_synthesis_prompt(problem, all_output_dicts)
+            try:
+                synthesis_result = self.client.analyze(system, user)
+            except Exception as e:
+                logger.error("Synthesis failed: %s", e)
+        else:
+            logger.error("All modules failed — no data to synthesize")
 
         return FinalAnalysis(
             problem=problem,

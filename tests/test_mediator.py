@@ -66,3 +66,29 @@ class TestMediator:
         assert isinstance(result, FinalAnalysis)
         # 4 round1 + 4 round2 = 8 module outputs
         assert len(result.module_outputs) == 8
+
+    def test_total_failure_returns_empty_analysis(self, sample_problem):
+        client = MagicMock(spec=ClaudeClient)
+        client.analyze.side_effect = Exception("API error")
+
+        mediator = Mediator(client)
+        result = mediator.analyze(sample_problem)
+
+        assert isinstance(result, FinalAnalysis)
+        assert result.problem == sample_problem
+        assert result.module_outputs == []
+        assert result.synthesis == ""
+
+    def test_synthesis_failure_returns_partial_result(self, sample_problem):
+        client = MagicMock(spec=ClaudeClient)
+        # 5 round1 succeed, 5 round2 succeed, synthesis fails
+        responses = [SAMPLE_LLM_RESPONSE] * 10 + [Exception("API error")]
+        client.analyze.side_effect = responses
+
+        mediator = Mediator(client)
+        result = mediator.analyze(sample_problem)
+
+        assert isinstance(result, FinalAnalysis)
+        assert len(result.module_outputs) == 10
+        assert result.synthesis == ""
+        assert result.conflicts == []
