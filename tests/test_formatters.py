@@ -71,11 +71,18 @@ class TestFormatDetailedReport:
         analysis = _make_analysis()
         report = format_detailed_report(analysis)
         assert "DETAILED ANALYSIS REPORT" in report
-        assert "Section 1: Executive Summary" in report
-        assert "Section 2: Round 1" in report
-        assert "Section 3: Round 2" in report
-        assert "Section 4: Conflicts" in report
-        assert "Section 5: Recommendations" in report
+        assert "TL;DR" in report
+        assert "Detailed Evidence" in report
+        assert "Round 1" in report
+        assert "Round 2" in report
+        assert "Conflicts" in report
+        assert "Recommendations" in report
+
+    def test_contains_transition_text(self):
+        analysis = _make_analysis()
+        report = format_detailed_report(analysis)
+        assert "2 independent analysis modules" in report
+        assert "each running 2 rounds" in report
 
     def test_contains_module_names(self):
         analysis = _make_analysis()

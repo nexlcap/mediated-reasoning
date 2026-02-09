@@ -86,21 +86,58 @@ def format_final_analysis(analysis: FinalAnalysis) -> str:
 def format_detailed_report(analysis: FinalAnalysis) -> str:
     lines = []
 
-    # Header
+    # Header + Problem
     lines.append(f"\n{BOLD}{'='*60}")
     lines.append(f"  DETAILED ANALYSIS REPORT")
     lines.append(f"{'='*60}{RESET}\n")
+    lines.append(f"{BOLD}Problem:{RESET} {analysis.problem}\n")
 
-    # Section 1: Executive Summary
+    # TL;DR — Final Analysis up front
     lines.append(f"{BOLD}{'─'*60}")
-    lines.append(f"  Section 1: Executive Summary")
+    lines.append(f"  TL;DR — Final Analysis")
     lines.append(f"{'─'*60}{RESET}\n")
-    lines.append(format_final_analysis(analysis))
 
-    # Section 2: Round 1 — Independent Analysis
+    if analysis.priority_flags:
+        lines.append(f"{BOLD}Priority Flags:{RESET}")
+        for flag in analysis.priority_flags:
+            lines.append(f"  {_colorize_flag(flag)}")
+        lines.append("")
+
+    if analysis.synthesis:
+        lines.append(f"{BOLD}Synthesis:{RESET}")
+        lines.append(f"  {analysis.synthesis}\n")
+
+    if analysis.conflicts:
+        lines.append(f"{BOLD}Conflicts Identified:{RESET}")
+        for conflict in analysis.conflicts:
+            lines.append(f"  - {conflict}")
+        lines.append("")
+
+    if analysis.recommendations:
+        lines.append(f"{BOLD}Recommendations:{RESET}")
+        for i, rec in enumerate(analysis.recommendations, 1):
+            lines.append(f"  {i}. {rec}")
+        lines.append("")
+
+    # Transition into detailed evidence
+    num_modules = len(set(o.module_name for o in analysis.module_outputs))
+    num_rounds = len(set(o.round for o in analysis.module_outputs))
+    lines.append(f"{BOLD}{'─'*60}")
+    lines.append(f"  Detailed Evidence")
+    lines.append(f"{'─'*60}{RESET}\n")
+    lines.append(
+        f"  The conclusions above are based on {num_modules} independent"
+        f" analysis modules, each running {num_rounds} rounds. In Round 1,"
+        f" every module assessed the problem independently. In Round 2,"
+        f" each module revised its analysis after reviewing the findings"
+        f" of all other modules. The synthesis then reconciled agreements,"
+        f" conflicts, and trade-offs into the final assessment.\n"
+    )
+
+    # Round 1 — Independent Analysis
     round1 = [o for o in analysis.module_outputs if o.round == 1]
     lines.append(f"{BOLD}{'─'*60}")
-    lines.append(f"  Section 2: Round 1 — Independent Analysis")
+    lines.append(f"  Round 1 — Independent Analysis")
     lines.append(f"{'─'*60}{RESET}\n")
     if round1:
         for output in round1:
@@ -111,7 +148,7 @@ def format_detailed_report(analysis: FinalAnalysis) -> str:
     # Section 3: Round 2 — Cross-Module Revision
     round2 = [o for o in analysis.module_outputs if o.round == 2]
     lines.append(f"{BOLD}{'─'*60}")
-    lines.append(f"  Section 3: Round 2 — Cross-Module Revision")
+    lines.append(f"  Round 2 — Cross-Module Revision")
     lines.append(f"{'─'*60}{RESET}\n")
     if round2:
         for output in round2:
@@ -121,7 +158,7 @@ def format_detailed_report(analysis: FinalAnalysis) -> str:
 
     # Section 4: Conflicts & Cross-Module Tensions
     lines.append(f"{BOLD}{'─'*60}")
-    lines.append(f"  Section 4: Conflicts & Cross-Module Tensions")
+    lines.append(f"  Conflicts & Cross-Module Tensions")
     lines.append(f"{'─'*60}{RESET}\n")
     if analysis.conflicts:
         for conflict in analysis.conflicts:
@@ -132,7 +169,7 @@ def format_detailed_report(analysis: FinalAnalysis) -> str:
 
     # Section 5: Recommendations
     lines.append(f"{BOLD}{'─'*60}")
-    lines.append(f"  Section 5: Recommendations")
+    lines.append(f"  Recommendations")
     lines.append(f"{'─'*60}{RESET}\n")
     if analysis.recommendations:
         for i, rec in enumerate(analysis.recommendations, 1):
