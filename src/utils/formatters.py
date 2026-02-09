@@ -24,6 +24,17 @@ def _colorize_flag(flag: str) -> str:
     return flag
 
 
+def _format_module_detail(output: ModuleOutput) -> list[str]:
+    lines = [f"{CYAN}{BOLD}[{output.module_name.upper()}]{RESET}"]
+    for key, value in output.analysis.items():
+        lines.append(f"  {BOLD}{key}:{RESET} {value}")
+    if output.flags:
+        flags_str = ", ".join(_colorize_flag(f) for f in output.flags)
+        lines.append(f"  {BOLD}Flags:{RESET} {flags_str}")
+    lines.append("")
+    return lines
+
+
 def format_round_summary(module_outputs: list[ModuleOutput], round_num: int) -> str:
     lines = [f"\n{BOLD}{'='*60}", f"  Round {round_num} Summary", f"{'='*60}{RESET}\n"]
     for output in module_outputs:
@@ -68,5 +79,66 @@ def format_final_analysis(analysis: FinalAnalysis) -> str:
         for i, rec in enumerate(analysis.recommendations, 1):
             lines.append(f"  {i}. {rec}")
         lines.append("")
+
+    return "\n".join(lines)
+
+
+def format_detailed_report(analysis: FinalAnalysis) -> str:
+    lines = []
+
+    # Header
+    lines.append(f"\n{BOLD}{'='*60}")
+    lines.append(f"  DETAILED ANALYSIS REPORT")
+    lines.append(f"{'='*60}{RESET}\n")
+
+    # Section 1: Executive Summary
+    lines.append(f"{BOLD}{'─'*60}")
+    lines.append(f"  Section 1: Executive Summary")
+    lines.append(f"{'─'*60}{RESET}\n")
+    lines.append(format_final_analysis(analysis))
+
+    # Section 2: Round 1 — Independent Analysis
+    round1 = [o for o in analysis.module_outputs if o.round == 1]
+    lines.append(f"{BOLD}{'─'*60}")
+    lines.append(f"  Section 2: Round 1 — Independent Analysis")
+    lines.append(f"{'─'*60}{RESET}\n")
+    if round1:
+        for output in round1:
+            lines.extend(_format_module_detail(output))
+    else:
+        lines.append("  No Round 1 outputs recorded.\n")
+
+    # Section 3: Round 2 — Cross-Module Revision
+    round2 = [o for o in analysis.module_outputs if o.round == 2]
+    lines.append(f"{BOLD}{'─'*60}")
+    lines.append(f"  Section 3: Round 2 — Cross-Module Revision")
+    lines.append(f"{'─'*60}{RESET}\n")
+    if round2:
+        for output in round2:
+            lines.extend(_format_module_detail(output))
+    else:
+        lines.append("  No Round 2 outputs recorded.\n")
+
+    # Section 4: Conflicts & Cross-Module Tensions
+    lines.append(f"{BOLD}{'─'*60}")
+    lines.append(f"  Section 4: Conflicts & Cross-Module Tensions")
+    lines.append(f"{'─'*60}{RESET}\n")
+    if analysis.conflicts:
+        for conflict in analysis.conflicts:
+            lines.append(f"  - {conflict}")
+        lines.append("")
+    else:
+        lines.append("  No conflicts identified.\n")
+
+    # Section 5: Recommendations
+    lines.append(f"{BOLD}{'─'*60}")
+    lines.append(f"  Section 5: Recommendations")
+    lines.append(f"{'─'*60}{RESET}\n")
+    if analysis.recommendations:
+        for i, rec in enumerate(analysis.recommendations, 1):
+            lines.append(f"  {i}. {rec}")
+        lines.append("")
+    else:
+        lines.append("  No recommendations provided.\n")
 
     return "\n".join(lines)
