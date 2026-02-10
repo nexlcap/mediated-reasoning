@@ -25,3 +25,4 @@ CLI tool using multi-agent mediated reasoning to analyze complex problems from m
 | 9 | `--report` flag for detailed output | Done |
 | 10 | Sources/citations field | Done |
 | 11 | Langfuse integration (tracing, cost tracking) | Open |
+| 12 | `--customer-report` flag (client-facing, no internals) | Done |
