@@ -13,6 +13,6 @@ def get_logger(name: str) -> logging.Logger:
     if os.environ.get("MEDIATED_REASONING_DEBUG"):
         logger.setLevel(logging.DEBUG)
     else:
-        logger.setLevel(logging.INFO)
+        logger.setLevel(logging.WARNING)
 
     return logger
