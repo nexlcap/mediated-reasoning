@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "agent",
+            "prompt": "You are a documentation maintenance agent. Your job is to check whether docs/PROJECT_CONTEXT.md needs updating based on recent code changes.\n\n1. Run `git diff HEAD~1` to see what changed in the most recent commit (if there is one). Also run `git diff` to see any uncommitted changes. If there are no changes at all, stop — no updates needed.\n\n2. Read docs/PROJECT_CONTEXT.md to understand its current state.\n\n3. Check whether any of the following sections are now stale:\n   a. **Data Models** — Compare the Pydantic schemas in the doc against src/models/schemas.py. Update if fields were added, removed, or changed.\n   b. **Code Structure** — Compare the file tree in the doc against the actual directory structure. Update if files or directories were added or removed.\n   c. **Design Decisions** — If the code changes reflect a meaningful architectural or design choice (e.g., new module added, new processing step, change in data flow, new integration pattern), add a new subsection explaining the decision and rationale. Use the git diff and code context to infer the 'why'. Only add decisions for non-trivial structural changes — skip simple bug fixes, formatting, or minor tweaks.\n   d. **Design Principles** — Update only if a new core principle is evident from the changes.\n   e. **Tech Stack** — Update if new dependencies were added to requirements.txt.\n\n4. If updates are needed, edit docs/PROJECT_CONTEXT.md with the changes. Keep the existing style and formatting. Be concise.\n\n5. If no updates are needed, do nothing.\n\nIMPORTANT: Only make changes that are clearly warranted by actual code changes. Do not speculatively add content. Do not rewrite existing content that is still accurate.",
+            "timeout": 120
+          }
+        ]
+      }
+    ]
+  }
+}
