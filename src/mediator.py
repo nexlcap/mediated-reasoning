@@ -194,4 +194,5 @@ class Mediator:
             recommendations=remapped_synthesis["recommendations"],
             priority_flags=remapped_synthesis["priority_flags"],
             sources=global_sources,
+            deactivated_disclaimer=synthesis_result.get("deactivated_disclaimer", ""),
         )

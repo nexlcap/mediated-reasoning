@@ -62,6 +62,9 @@ def format_final_analysis(analysis: FinalAnalysis) -> str:
         f"{BOLD}Problem:{RESET} {analysis.problem}\n",
     ]
 
+    if analysis.deactivated_disclaimer:
+        lines.append(f"{YELLOW}{BOLD}Note:{RESET} {YELLOW}{analysis.deactivated_disclaimer}{RESET}\n")
+
     if analysis.conflicts:
         lines.append(f"{BOLD}Conflicts Identified:{RESET}")
         for conflict in analysis.conflicts:
@@ -101,6 +104,9 @@ def format_detailed_report(analysis: FinalAnalysis) -> str:
     lines.append(f"  DETAILED ANALYSIS REPORT")
     lines.append(f"{'='*60}{RESET}\n")
     lines.append(f"{BOLD}Problem:{RESET} {analysis.problem}\n")
+
+    if analysis.deactivated_disclaimer:
+        lines.append(f"{YELLOW}{BOLD}Note:{RESET} {YELLOW}{analysis.deactivated_disclaimer}{RESET}\n")
 
     # TL;DR — Final Analysis up front
     lines.append(f"{BOLD}{'─'*60}")
@@ -207,6 +213,9 @@ def format_customer_report(analysis: FinalAnalysis) -> str:
     lines.append(f"  ANALYSIS REPORT")
     lines.append(f"{'='*60}{RESET}\n")
     lines.append(f"{BOLD}Problem:{RESET} {analysis.problem}\n")
+
+    if analysis.deactivated_disclaimer:
+        lines.append(f"{YELLOW}{BOLD}Note:{RESET} {YELLOW}{analysis.deactivated_disclaimer}{RESET}\n")
 
     if analysis.priority_flags:
         lines.append(f"{BOLD}Priority Flags:{RESET}")

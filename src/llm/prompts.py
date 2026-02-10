@@ -124,12 +124,18 @@ def build_synthesis_prompt(
             )
 
     deactivated_instruction = ""
+    deactivated_field = ""
     if deactivated_modules:
         names = ", ".join(deactivated_modules)
         deactivated_instruction = (
             f"\n\nIMPORTANT: The following modules were deactivated by the user: {names}. "
-            "You MUST include a disclaimer in your synthesis stating that these modules "
-            "were deactivated and their perspectives are not reflected in this analysis."
+            "You MUST include a disclaimer in your synthesis AND in the dedicated "
+            '"deactivated_disclaimer" field stating which modules were deactivated '
+            "and that their perspectives are not reflected in this analysis."
+        )
+        deactivated_field = (
+            '  "deactivated_disclaimer": "Disclaimer noting which modules were '
+            'deactivated and that their analysis is absent",\n'
         )
 
     user = (
@@ -140,6 +146,7 @@ def build_synthesis_prompt(
         f"{weight_instruction}{deactivated_instruction}\n\n"
         "Return your response as a JSON object with exactly these fields:\n"
         '{\n'
+        f'{deactivated_field}'
         '  "conflicts": ["conflict between modules [1]", ...],\n'
         '  "synthesis": "Overall synthesized assessment paragraph with inline citations [1][2]",\n'
         '  "recommendations": ["recommendation 1 [3]", ...],\n'
