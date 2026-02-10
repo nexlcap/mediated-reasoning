@@ -56,7 +56,8 @@ Return your response as a JSON object with exactly these fields:
     "opportunities": ["opportunity 1", ...],
     "risks": ["risk 1", ...]
   },
-  "flags": ["red: critical issue description", "yellow: caution description", "green: positive signal description"]
+  "flags": ["red: critical issue description", "yellow: caution description", "green: positive signal description"],
+  "sources": ["Cite any data sources, reports, studies, or industry references that support your analysis"]
 }
 """
 
@@ -109,7 +110,8 @@ def build_synthesis_prompt(
         '  "conflicts": ["conflict between modules 1", ...],\n'
         '  "synthesis": "Overall synthesized assessment paragraph",\n'
         '  "recommendations": ["recommendation 1", ...],\n'
-        '  "priority_flags": ["red: critical issue", "yellow: caution", "green: positive"]\n'
+        '  "priority_flags": ["red: critical issue", "yellow: caution", "green: positive"],\n'
+        '  "sources": ["Cite any additional data sources, reports, or references that support the synthesis"]\n'
         '}'
     )
     return system, user

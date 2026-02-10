@@ -77,6 +77,19 @@ class Mediator:
         else:
             logger.error("All modules failed — no data to synthesize")
 
+        # Collect unique sources from all modules and synthesis
+        seen = set()
+        all_sources = []
+        for output in all_outputs:
+            for s in output.sources:
+                if s not in seen:
+                    seen.add(s)
+                    all_sources.append(s)
+        for s in synthesis_result.get("sources", []):
+            if s not in seen:
+                seen.add(s)
+                all_sources.append(s)
+
         return FinalAnalysis(
             problem=problem,
             module_outputs=all_outputs,
@@ -84,4 +97,5 @@ class Mediator:
             synthesis=synthesis_result.get("synthesis", ""),
             recommendations=synthesis_result.get("recommendations", []),
             priority_flags=synthesis_result.get("priority_flags", []),
+            sources=all_sources,
         )

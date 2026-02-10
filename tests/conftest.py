@@ -15,6 +15,7 @@ SAMPLE_LLM_RESPONSE = {
         "risks": ["risk 1"],
     },
     "flags": ["green: looks good", "yellow: some caution"],
+    "sources": ["IBISWorld Food Delivery Industry Report 2024", "McKinsey Digital Consumer Survey"],
 }
 
 SAMPLE_SYNTHESIS_RESPONSE = {
@@ -22,6 +23,7 @@ SAMPLE_SYNTHESIS_RESPONSE = {
     "synthesis": "Overall the idea has potential but requires careful financial planning.",
     "recommendations": ["Start with a single city", "Secure Series A funding"],
     "priority_flags": ["yellow: high initial investment required"],
+    "sources": ["Crunchbase Funding Data 2024", "Deloitte Restaurant Industry Outlook"],
 }
 
 

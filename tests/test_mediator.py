@@ -109,3 +109,15 @@ class TestMediator:
         assert len(result.module_outputs) == 10
         assert result.synthesis == ""
         assert result.conflicts == []
+
+    def test_sources_collected(self, mediator_client, sample_problem):
+        mediator = Mediator(mediator_client)
+        result = mediator.analyze(sample_problem)
+
+        assert isinstance(result.sources, list)
+        assert len(result.sources) > 0
+        # Module sources + synthesis sources, deduplicated
+        for s in SAMPLE_LLM_RESPONSE["sources"]:
+            assert s in result.sources
+        for s in SAMPLE_SYNTHESIS_RESPONSE["sources"]:
+            assert s in result.sources

@@ -27,6 +27,7 @@ class BaseModule(ABC):
             round=1,
             analysis=result.get("analysis", result),
             flags=result.get("flags", []),
+            sources=result.get("sources", []),
             revised=False,
         )
 
@@ -41,5 +42,6 @@ class BaseModule(ABC):
             round=2,
             analysis=result.get("analysis", result),
             flags=result.get("flags", []),
+            sources=result.get("sources", []),
             revised=True,
         )

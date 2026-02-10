@@ -31,6 +31,10 @@ def _format_module_detail(output: ModuleOutput) -> list[str]:
     if output.flags:
         flags_str = ", ".join(_colorize_flag(f) for f in output.flags)
         lines.append(f"  {BOLD}Flags:{RESET} {flags_str}")
+    if output.sources:
+        lines.append(f"  {BOLD}Sources:{RESET}")
+        for source in output.sources:
+            lines.append(f"    - {source}")
     lines.append("")
     return lines
 
@@ -78,6 +82,12 @@ def format_final_analysis(analysis: FinalAnalysis) -> str:
         lines.append(f"{BOLD}Recommendations:{RESET}")
         for i, rec in enumerate(analysis.recommendations, 1):
             lines.append(f"  {i}. {rec}")
+        lines.append("")
+
+    if analysis.sources:
+        lines.append(f"{BOLD}Sources:{RESET}")
+        for source in analysis.sources:
+            lines.append(f"  - {source}")
         lines.append("")
 
     return "\n".join(lines)
@@ -177,5 +187,14 @@ def format_detailed_report(analysis: FinalAnalysis) -> str:
         lines.append("")
     else:
         lines.append("  No recommendations provided.\n")
+
+    # Section 6: Sources & References
+    if analysis.sources:
+        lines.append(f"{BOLD}{'─'*60}")
+        lines.append(f"  Sources & References")
+        lines.append(f"{'─'*60}{RESET}\n")
+        for source in analysis.sources:
+            lines.append(f"  - {source}")
+        lines.append("")
 
     return "\n".join(lines)
