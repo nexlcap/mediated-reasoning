@@ -1,3 +1,5 @@
+import threading
+
 import pytest
 from unittest.mock import MagicMock, call
 
@@ -7,6 +9,21 @@ from src.models.schemas import FinalAnalysis
 from tests.conftest import SAMPLE_LLM_RESPONSE, SAMPLE_SYNTHESIS_RESPONSE
 
 
+def _thread_safe_side_effect(responses):
+    """Return a side_effect callable that pops from a list in a thread-safe way."""
+    lock = threading.Lock()
+    queue = list(responses)
+
+    def side_effect(*args, **kwargs):
+        with lock:
+            item = queue.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+    return side_effect
+
+
 class TestMediator:
     @pytest.fixture
     def mediator_client(self):
@@ -14,7 +31,7 @@ class TestMediator:
         # First 10 calls (5 round1 + 5 round2) return module output
         # Last call returns synthesis
         responses = [SAMPLE_LLM_RESPONSE] * 10 + [SAMPLE_SYNTHESIS_RESPONSE]
-        client.analyze.side_effect = responses
+        client.analyze.side_effect = _thread_safe_side_effect(responses)
         return client
 
     def test_analyze_returns_final_analysis(self, mediator_client, sample_problem):
@@ -58,7 +75,7 @@ class TestMediator:
         responses += [SAMPLE_LLM_RESPONSE] * 4
         # Synthesis
         responses += [SAMPLE_SYNTHESIS_RESPONSE]
-        client.analyze.side_effect = responses
+        client.analyze.side_effect = _thread_safe_side_effect(responses)
 
         mediator = Mediator(client)
         result = mediator.analyze(sample_problem)
@@ -83,7 +100,7 @@ class TestMediator:
         client = MagicMock(spec=ClaudeClient)
         # 5 round1 succeed, 5 round2 succeed, synthesis fails
         responses = [SAMPLE_LLM_RESPONSE] * 10 + [Exception("API error")]
-        client.analyze.side_effect = responses
+        client.analyze.side_effect = _thread_safe_side_effect(responses)
 
         mediator = Mediator(client)
         result = mediator.analyze(sample_problem)
