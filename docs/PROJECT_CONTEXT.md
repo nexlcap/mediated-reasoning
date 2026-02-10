@@ -202,8 +202,8 @@ Chosen for faster iteration, full environment control, and better git integratio
 ### Why Conda over venv?
 Explicit user preference. No specific technical justification — purely a tooling choice.
 
-### Open questions
-- **Sequential vs parallel execution within a round:** Should modules run in parallel for speed, or sequentially if there are dependencies? This was raised but never resolved.
+### Resolved questions
+- **Sequential vs parallel execution within a round:** Modules run in parallel within each round using `ThreadPoolExecutor`. Since modules are independent within a round, this cuts wall-clock time from sequential API calls to parallel batches (R1 parallel + R2 parallel + synthesis).
 
 ## Design Principles
 
