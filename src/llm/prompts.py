@@ -1,11 +1,19 @@
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 
-def _format_round1_outputs(round1_outputs: List[Dict]) -> str:
+def _format_round1_outputs(
+    round1_outputs: List[Dict], weights: Optional[Dict[str, float]] = None
+) -> str:
     sections = []
     for output in round1_outputs:
+        name = output['module_name']
+        weight = (weights or {}).get(name, 1)
+        header = f"--- {name.upper()} MODULE"
+        if weight != 1:
+            header += f" (Weight: {weight}x)"
+        header += " ---"
         sections.append(
-            f"--- {output['module_name'].upper()} MODULE ---\n"
+            f"{header}\n"
             f"Analysis: {output['analysis']}\n"
             f"Flags: {output['flags']}\n"
         )
@@ -94,7 +102,10 @@ def build_round2_prompt(
 
 
 def build_synthesis_prompt(
-    problem: str, all_outputs: List[Dict]
+    problem: str,
+    all_outputs: List[Dict],
+    weights: Optional[Dict[str, float]] = None,
+    deactivated_modules: Optional[List[str]] = None,
 ) -> tuple[str, str]:
     system = (
         "You are a senior strategic advisor synthesizing multiple expert analyses. "
@@ -102,11 +113,31 @@ def build_synthesis_prompt(
         "actionable recommendations. "
         "Respond with ONLY valid JSON, no other text."
     )
+
+    weight_instruction = ""
+    if weights:
+        active_weights = {k: v for k, v in weights.items() if v != 0}
+        if active_weights:
+            weight_instruction = (
+                "\n\nModules with higher weights should carry proportionally more "
+                "influence in your synthesis and recommendations."
+            )
+
+    deactivated_instruction = ""
+    if deactivated_modules:
+        names = ", ".join(deactivated_modules)
+        deactivated_instruction = (
+            f"\n\nThe following modules were deactivated by the user: {names}. "
+            "If any of these perspectives would have been relevant to the analysis, "
+            "include a brief disclaimer noting their absence."
+        )
+
     user = (
         f"Original problem:\n{problem}\n\n"
         f"All module analyses (Rounds 1 and 2):\n\n"
-        f"{_format_round1_outputs(all_outputs)}\n\n"
+        f"{_format_round1_outputs(all_outputs, weights=weights)}\n\n"
         "Synthesize these analyses into a final assessment.\n\n"
+        f"{weight_instruction}{deactivated_instruction}\n\n"
         "Return your response as a JSON object with exactly these fields:\n"
         '{\n'
         '  "conflicts": ["conflict between modules [1]", ...],\n'

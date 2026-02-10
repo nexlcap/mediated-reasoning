@@ -1,6 +1,6 @@
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from src.llm.client import ClaudeClient
 from src.llm.prompts import build_synthesis_prompt
@@ -104,9 +104,16 @@ def _consolidate_sources(
 
 
 class Mediator:
-    def __init__(self, client: ClaudeClient):
+    def __init__(self, client: ClaudeClient, weights: Optional[Dict[str, float]] = None):
         self.client = client
-        self.modules = [cls(client) for cls in MODULE_REGISTRY]
+        self.weights = weights or {}
+        all_modules = [cls(client) for cls in MODULE_REGISTRY]
+        self.deactivated_modules = [
+            m.name for m in all_modules if self.weights.get(m.name, 1) == 0
+        ]
+        self.modules = [
+            m for m in all_modules if m.name not in self.deactivated_modules
+        ]
 
     def _run_round1(self, module, problem: str) -> ModuleOutput:
         return module.run_round1(problem)
@@ -162,7 +169,11 @@ class Mediator:
         synthesis_result = {}
         if all_outputs:
             all_output_dicts = [o.model_dump() for o in all_outputs]
-            system, user = build_synthesis_prompt(problem, all_output_dicts)
+            system, user = build_synthesis_prompt(
+                problem, all_output_dicts,
+                weights=self.weights,
+                deactivated_modules=self.deactivated_modules,
+            )
             try:
                 synthesis_result = self.client.analyze(system, user)
             except Exception as e:

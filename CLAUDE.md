@@ -17,7 +17,7 @@ CLI tool using multi-agent mediated reasoning to analyze complex problems from m
 | 1 | Parallel module execution | Done |
 | 2 | Export to markdown/JSON/HTML (`--output report.md`) | Done |
 | 3 | Suppress logging noise (stderr or `--verbose` only) | Done |
-| 4 | Module weighting (`--weight legal=2`) | Open |
+| 4 | Module weighting (`--weight legal=2`) | Done |
 | 5 | Structured conflict extraction (objects, not free-text) | Open |
 | 6 | Follow-up / interactive mode | Open |
 | 7 | CLI argument tests | Open |
