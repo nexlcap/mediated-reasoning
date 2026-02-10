@@ -198,3 +198,36 @@ def format_detailed_report(analysis: FinalAnalysis) -> str:
         lines.append("")
 
     return "\n".join(lines)
+
+
+def format_customer_report(analysis: FinalAnalysis) -> str:
+    lines = []
+
+    lines.append(f"\n{BOLD}{'='*60}")
+    lines.append(f"  ANALYSIS REPORT")
+    lines.append(f"{'='*60}{RESET}\n")
+    lines.append(f"{BOLD}Problem:{RESET} {analysis.problem}\n")
+
+    if analysis.priority_flags:
+        lines.append(f"{BOLD}Priority Flags:{RESET}")
+        for flag in analysis.priority_flags:
+            lines.append(f"  {_colorize_flag(flag)}")
+        lines.append("")
+
+    if analysis.synthesis:
+        lines.append(f"{BOLD}Key Findings:{RESET}")
+        lines.append(f"  {analysis.synthesis}\n")
+
+    if analysis.recommendations:
+        lines.append(f"{BOLD}Recommendations:{RESET}")
+        for i, rec in enumerate(analysis.recommendations, 1):
+            lines.append(f"  {i}. {rec}")
+        lines.append("")
+
+    if analysis.sources:
+        lines.append(f"{BOLD}Sources:{RESET}")
+        for i, source in enumerate(analysis.sources, 1):
+            lines.append(f"  [{i}] {source}")
+        lines.append("")
+
+    return "\n".join(lines)

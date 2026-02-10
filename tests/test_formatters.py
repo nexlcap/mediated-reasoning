@@ -2,6 +2,7 @@ from src.models.schemas import FinalAnalysis, ModuleOutput
 from src.utils.formatters import (
     BOLD, RESET, RED, YELLOW, GREEN,
     _colorize_flag,
+    format_customer_report,
     format_detailed_report,
 )
 
@@ -126,3 +127,75 @@ class TestFormatDetailedReport:
         assert "No Round 2 outputs recorded." in report
         assert "No conflicts identified." in report
         assert "No recommendations provided." in report
+
+
+class TestFormatCustomerReport:
+    def test_contains_expected_sections(self):
+        analysis = _make_analysis()
+        report = format_customer_report(analysis)
+        assert "ANALYSIS REPORT" in report
+        assert "Problem:" in report
+        assert "Priority Flags:" in report
+        assert "Key Findings:" in report
+        assert "Recommendations:" in report
+
+    def test_contains_problem(self):
+        analysis = _make_analysis()
+        report = format_customer_report(analysis)
+        assert "Test a mobile app idea" in report
+
+    def test_contains_synthesis(self):
+        analysis = _make_analysis()
+        report = format_customer_report(analysis)
+        assert "The idea is viable with caveats." in report
+
+    def test_contains_recommendations(self):
+        analysis = _make_analysis()
+        report = format_customer_report(analysis)
+        assert "1. Start with MVP" in report
+        assert "2. Validate with users early" in report
+
+    def test_contains_priority_flags(self):
+        analysis = _make_analysis()
+        report = format_customer_report(analysis)
+        assert "high burn rate risk" in report
+        assert "strong market fit" in report
+
+    def test_omits_module_names(self):
+        analysis = _make_analysis()
+        report = format_customer_report(analysis)
+        assert "MARKET" not in report
+        assert "TECHNICAL" not in report
+
+    def test_omits_round_details(self):
+        analysis = _make_analysis()
+        report = format_customer_report(analysis)
+        assert "Round 1" not in report
+        assert "Round 2" not in report
+
+    def test_omits_methodology(self):
+        analysis = _make_analysis()
+        report = format_customer_report(analysis)
+        assert "independent analysis modules" not in report
+        assert "Detailed Evidence" not in report
+
+    def test_omits_cross_module_sections(self):
+        analysis = _make_analysis()
+        report = format_customer_report(analysis)
+        assert "Cross-Module" not in report
+        assert "Conflicts" not in report
+
+    def test_contains_sources(self):
+        analysis = _make_analysis()
+        analysis.sources = ["Source A", "Source B"]
+        report = format_customer_report(analysis)
+        assert "[1] Source A" in report
+        assert "[2] Source B" in report
+
+    def test_empty_analysis(self):
+        analysis = FinalAnalysis(problem="Empty test")
+        report = format_customer_report(analysis)
+        assert "ANALYSIS REPORT" in report
+        assert "Empty test" in report
+        assert "Key Findings" not in report
+        assert "Recommendations" not in report

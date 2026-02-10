@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 
 from src.llm.client import ClaudeClient, DEFAULT_MODEL
 from src.mediator import Mediator
-from src.utils.formatters import format_detailed_report, format_final_analysis, format_round_summary
+from src.utils.formatters import format_customer_report, format_detailed_report, format_final_analysis, format_round_summary
 
 
 def main():
@@ -19,6 +19,7 @@ def main():
     parser.add_argument("--model", default=DEFAULT_MODEL, help=f"Claude model to use (default: {DEFAULT_MODEL})")
     parser.add_argument("--verbose", action="store_true", help="Show detailed round-by-round output")
     parser.add_argument("--report", action="store_true", help="Generate a comprehensive detailed report")
+    parser.add_argument("--customer-report", action="store_true", help="Generate a customer-facing report (no internal details)")
     args = parser.parse_args()
 
     problem = args.problem
@@ -47,7 +48,9 @@ def main():
         print(format_round_summary(round1, 1))
         print(format_round_summary(round2, 2))
 
-    if args.report:
+    if args.customer_report:
+        print(format_customer_report(result))
+    elif args.report:
         print(format_detailed_report(result))
     else:
         print(format_final_analysis(result))
