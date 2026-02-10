@@ -52,13 +52,15 @@ Return your response as a JSON object with exactly these fields:
 {
   "analysis": {
     "summary": "Brief overall assessment",
-    "key_findings": ["finding 1", "finding 2", ...],
-    "opportunities": ["opportunity 1", ...],
-    "risks": ["risk 1", ...]
+    "key_findings": ["finding 1 [1]", "finding 2 [2]", ...],
+    "opportunities": ["opportunity 1 [3]", ...],
+    "risks": ["risk 1 [4]", ...]
   },
-  "flags": ["red: critical issue description", "yellow: caution description", "green: positive signal description"],
-  "sources": ["Cite any data sources, reports, studies, or industry references that support your analysis"]
+  "flags": ["red: critical issue description [1]", "yellow: caution description [2]", "green: positive signal description"],
+  "sources": ["1. Source for finding 1", "2. Source for finding 2", ...]
 }
+
+IMPORTANT: Use numbered inline citations like [1], [2], etc. within your analysis text, findings, opportunities, risks, and flags to reference specific sources. Each citation number must correspond to the matching numbered entry in the "sources" array. Every claim backed by data should have a citation.
 """
 
 
@@ -107,11 +109,15 @@ def build_synthesis_prompt(
         "Synthesize these analyses into a final assessment.\n\n"
         "Return your response as a JSON object with exactly these fields:\n"
         '{\n'
-        '  "conflicts": ["conflict between modules 1", ...],\n'
-        '  "synthesis": "Overall synthesized assessment paragraph",\n'
-        '  "recommendations": ["recommendation 1", ...],\n'
-        '  "priority_flags": ["red: critical issue", "yellow: caution", "green: positive"],\n'
-        '  "sources": ["Cite any additional data sources, reports, or references that support the synthesis"]\n'
-        '}'
+        '  "conflicts": ["conflict between modules [1]", ...],\n'
+        '  "synthesis": "Overall synthesized assessment paragraph with inline citations [1][2]",\n'
+        '  "recommendations": ["recommendation 1 [3]", ...],\n'
+        '  "priority_flags": ["red: critical issue [1]", "yellow: caution", "green: positive"],\n'
+        '  "sources": ["1. Source name", "2. Source name", ...]\n'
+        '}\n\n'
+        'IMPORTANT: Use numbered inline citations like [1], [2], etc. within your '
+        'synthesis, conflicts, recommendations, and flags to reference specific sources. '
+        'Each citation number must correspond to the matching numbered entry in the '
+        '"sources" array. Every claim backed by data should have a citation.'
     )
     return system, user
