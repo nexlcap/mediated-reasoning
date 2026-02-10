@@ -116,8 +116,11 @@ class TestMediator:
 
         assert isinstance(result.sources, list)
         assert len(result.sources) > 0
-        # Module sources + synthesis sources, deduplicated
+        # Module sources + synthesis sources, deduplicated and prefix-stripped
         for s in SAMPLE_LLM_RESPONSE["sources"]:
             assert s in result.sources
         for s in SAMPLE_SYNTHESIS_RESPONSE["sources"]:
             assert s in result.sources
+        # Module outputs have sources cleared (consolidated at top level)
+        for output in result.module_outputs:
+            assert output.sources == []

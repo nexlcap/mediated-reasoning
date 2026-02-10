@@ -1,5 +1,6 @@
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List
+from typing import Dict, List
 
 from src.llm.client import ClaudeClient
 from src.llm.prompts import build_synthesis_prompt
@@ -8,6 +9,98 @@ from src.modules import MODULE_REGISTRY
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+def _strip_source_prefix(source: str) -> str:
+    """Strip leading number prefix like '1. ' from source string."""
+    return re.sub(r"^\d+\.\s*", "", source)
+
+
+def _remap_citations(text: str, index_map: Dict[int, int]) -> str:
+    """Replace [N] citation markers with remapped global indices."""
+    def _replace(m):
+        old_idx = int(m.group(1))
+        new_idx = index_map.get(old_idx, old_idx)
+        return f"[{new_idx}]"
+    return re.sub(r"\[(\d+)\]", _replace, text)
+
+
+def _remap_analysis(analysis: Dict, index_map: Dict[int, int]) -> Dict:
+    """Remap citation markers in all string values of an analysis dict."""
+    remapped = {}
+    for key, value in analysis.items():
+        if isinstance(value, str):
+            remapped[key] = _remap_citations(value, index_map)
+        elif isinstance(value, list):
+            remapped[key] = [
+                _remap_citations(v, index_map) if isinstance(v, str) else v
+                for v in value
+            ]
+        else:
+            remapped[key] = value
+    return remapped
+
+
+def _consolidate_sources(
+    all_outputs: List[ModuleOutput], synthesis_result: Dict
+) -> tuple[List[str], List[ModuleOutput], Dict]:
+    """Build a global deduplicated source list and remap all inline citations.
+
+    Returns (global_sources, remapped_outputs, remapped_synthesis_fields).
+    """
+    # 1. Build global source list, deduplicating by stripped text
+    global_sources: List[str] = []
+    seen: Dict[str, int] = {}  # stripped source text -> 1-based global index
+
+    # Collect per-output local-to-global mappings
+    output_maps: List[Dict[int, int]] = []
+    for output in all_outputs:
+        index_map: Dict[int, int] = {}
+        for local_idx, raw_source in enumerate(output.sources, 1):
+            stripped = _strip_source_prefix(raw_source)
+            if stripped not in seen:
+                global_sources.append(stripped)
+                seen[stripped] = len(global_sources)
+            index_map[local_idx] = seen[stripped]
+        output_maps.append(index_map)
+
+    # Synthesis sources
+    synthesis_map: Dict[int, int] = {}
+    for local_idx, raw_source in enumerate(
+        synthesis_result.get("sources", []), 1
+    ):
+        stripped = _strip_source_prefix(raw_source)
+        if stripped not in seen:
+            global_sources.append(stripped)
+            seen[stripped] = len(global_sources)
+        synthesis_map[local_idx] = seen[stripped]
+
+    # 2. Remap inline citations in module outputs
+    remapped_outputs = []
+    for output, index_map in zip(all_outputs, output_maps):
+        remapped_outputs.append(
+            ModuleOutput(
+                module_name=output.module_name,
+                round=output.round,
+                analysis=_remap_analysis(output.analysis, index_map),
+                flags=[_remap_citations(f, index_map) for f in output.flags],
+                sources=[],  # cleared — all sources consolidated at the end
+                revised=output.revised,
+            )
+        )
+
+    # 3. Remap inline citations in synthesis fields
+    remapped_synthesis = {}
+    for key in ("conflicts", "recommendations", "priority_flags"):
+        remapped_synthesis[key] = [
+            _remap_citations(item, synthesis_map)
+            for item in synthesis_result.get(key, [])
+        ]
+    remapped_synthesis["synthesis"] = _remap_citations(
+        synthesis_result.get("synthesis", ""), synthesis_map
+    )
+
+    return global_sources, remapped_outputs, remapped_synthesis
 
 
 class Mediator:
@@ -77,25 +170,17 @@ class Mediator:
         else:
             logger.error("All modules failed — no data to synthesize")
 
-        # Collect unique sources from all modules and synthesis
-        seen = set()
-        all_sources = []
-        for output in all_outputs:
-            for s in output.sources:
-                if s not in seen:
-                    seen.add(s)
-                    all_sources.append(s)
-        for s in synthesis_result.get("sources", []):
-            if s not in seen:
-                seen.add(s)
-                all_sources.append(s)
+        # Consolidate sources and remap inline citations
+        global_sources, remapped_outputs, remapped_synthesis = (
+            _consolidate_sources(all_outputs, synthesis_result)
+        )
 
         return FinalAnalysis(
             problem=problem,
-            module_outputs=all_outputs,
-            conflicts=synthesis_result.get("conflicts", []),
-            synthesis=synthesis_result.get("synthesis", ""),
-            recommendations=synthesis_result.get("recommendations", []),
-            priority_flags=synthesis_result.get("priority_flags", []),
-            sources=all_sources,
+            module_outputs=remapped_outputs,
+            conflicts=remapped_synthesis["conflicts"],
+            synthesis=remapped_synthesis["synthesis"],
+            recommendations=remapped_synthesis["recommendations"],
+            priority_flags=remapped_synthesis["priority_flags"],
+            sources=global_sources,
         )
