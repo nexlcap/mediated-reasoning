@@ -122,6 +122,15 @@ class TestExportHtml:
         html = export_html(sample_analysis, "customer")
         assert "ANALYSIS REPORT" in html
 
+    def test_auto_links_urls(self):
+        analysis = FinalAnalysis(
+            problem="test",
+            sources=["https://example.com/report", "Some text report"],
+        )
+        html = export_html(analysis)
+        assert '<a href="https://example.com/report">https://example.com/report</a>' in html
+        assert "Some text report" in html
+
 
 class TestExportToFile:
     def test_write_markdown(self, sample_analysis, tmp_path):

@@ -9,6 +9,7 @@ from src.utils.formatters import (
 )
 
 ANSI_RE = re.compile(r"\033\[[0-9;]*m")
+URL_RE = re.compile(r"(https?://[^\s<>&]+)")
 
 FORMATTERS = {
     "default": format_final_analysis,
@@ -35,6 +36,8 @@ def export_html(analysis: FinalAnalysis, report_style: str = "default") -> str:
     content = strip_ansi(formatter(analysis))
     # Escape HTML entities in the content
     content = content.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    # Auto-link URLs
+    content = URL_RE.sub(r'<a href="\1">\1</a>', content)
     return (
         "<!DOCTYPE html>\n"
         "<html>\n"
