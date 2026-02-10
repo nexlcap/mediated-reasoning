@@ -127,9 +127,9 @@ def build_synthesis_prompt(
     if deactivated_modules:
         names = ", ".join(deactivated_modules)
         deactivated_instruction = (
-            f"\n\nThe following modules were deactivated by the user: {names}. "
-            "If any of these perspectives would have been relevant to the analysis, "
-            "include a brief disclaimer noting their absence."
+            f"\n\nIMPORTANT: The following modules were deactivated by the user: {names}. "
+            "You MUST include a disclaimer in your synthesis stating that these modules "
+            "were deactivated and their perspectives are not reflected in this analysis."
         )
 
     user = (
