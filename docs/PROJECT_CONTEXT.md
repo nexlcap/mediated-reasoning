@@ -105,6 +105,7 @@ class ModuleOutput(BaseModel):
     round: int
     analysis: Dict
     flags: List[str]
+    sources: List[str]
     revised: bool
 
 class FinalAnalysis(BaseModel):
@@ -114,6 +115,7 @@ class FinalAnalysis(BaseModel):
     synthesis: str
     recommendations: List[str]
     priority_flags: List[str]  # Red/yellow flags
+    sources: List[str]         # Consolidated citations with inline [N] markers
 ```
 
 ## Code Structure
@@ -145,13 +147,15 @@ mediated-reasoning/
 │       ├── logger.py           # Logging
 │       └── formatters.py       # Output formatting
 ├── tests/
+│   ├── __init__.py
+│   ├── conftest.py            # Shared fixtures and sample data
 │   ├── test_mediator.py
 │   ├── test_modules.py
-│   └── test_e2e.py
+│   ├── test_formatters.py
+│   └── test_schemas.py
 ├── docs/
 ├── .env.example
-├── requirements.txt
-└── README.md
+└── requirements.txt
 ```
 
 ## Tech Stack
