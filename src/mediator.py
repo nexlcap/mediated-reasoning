@@ -1,6 +1,7 @@
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 from src.llm.client import ClaudeClient
@@ -510,6 +511,7 @@ class Mediator:
 
         return FinalAnalysis(
             problem=problem,
+            generated_at=datetime.now(timezone.utc).isoformat(),
             module_outputs=remapped_outputs,
             conflicts=conflicts,
             synthesis=remapped_synthesis["synthesis"],

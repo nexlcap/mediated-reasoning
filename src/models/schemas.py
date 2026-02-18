@@ -76,6 +76,7 @@ class AuditSummary(BaseModel):
 
 class FinalAnalysis(BaseModel):
     problem: str
+    generated_at: str = ""
     module_outputs: List[ModuleOutput] = Field(default_factory=list)
     conflicts: List[Conflict] = Field(default_factory=list)
     synthesis: str = ""

@@ -6,6 +6,7 @@ escape codes, no <pre> blocks, no long unwrapped lines.
 """
 import html
 import re
+from datetime import datetime, timezone
 from typing import List
 
 from src.models.schemas import Conflict, ConflictResolution, FinalAnalysis, ModuleOutput
@@ -16,6 +17,7 @@ _URL_RE = re.compile(r"(https?://[^\s<>&\"]+)")
 
 _CSS = """
 *, *::before, *::after { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   max-width: 880px;
@@ -26,13 +28,27 @@ body {
   background: #fff;
 }
 h1 { font-size: 1.55rem; border-bottom: 2px solid #ddd; padding-bottom: .4rem; margin-bottom: .3rem; }
-.subtitle { font-size: .9rem; color: #777; margin: 0 0 1.5rem; font-style: italic; }
-h2 { font-size: 1.15rem; margin: 2.2rem 0 .7rem; color: #111; border-bottom: 1px solid #eee; padding-bottom: .2rem; }
+.meta { font-size: .82rem; color: #888; margin: .2rem 0 .6rem; }
+.subtitle { font-size: .9rem; color: #777; margin: 0 0 .4rem; font-style: italic; }
+h2 { font-size: 1.15rem; margin: 2.2rem 0 .7rem; color: #111; border-bottom: 1px solid #eee; padding-bottom: .2rem; scroll-margin-top: 1rem; }
 h3 { font-size: 1rem; margin: 1.4rem 0 .4rem; color: #333; }
 p  { margin: .5rem 0; }
 a  { color: #1a5ba6; word-break: break-all; }
 a.cite { text-decoration: none; color: #555; font-size: .85em; }
 a.cite:hover { text-decoration: underline; }
+
+/* ── Table of contents ──────────────────────────────────── */
+nav.toc {
+  background: #f8f8f8; border: 1px solid #e0e0e0;
+  border-radius: 6px; padding: .8rem 1.2rem;
+  margin: 1rem 0 1.5rem; font-size: .88rem;
+}
+nav.toc strong { display: block; font-size: .78rem; text-transform: uppercase;
+  letter-spacing: .06em; color: #777; margin-bottom: .4rem; }
+nav.toc ol { margin: 0; padding-left: 1.4rem; column-count: 2; column-gap: 2rem; }
+nav.toc li { margin-bottom: .15rem; }
+nav.toc a { color: #1a5ba6; text-decoration: none; }
+nav.toc a:hover { text-decoration: underline; }
 
 /* ── Config box ─────────────────────────────────────────── */
 .config-box {
@@ -188,6 +204,62 @@ def _flag_class(flag: str) -> str:
     return ""
 
 
+# ── Helpers ────────────────────────────────────────────────────────────────
+
+def _format_date(iso: str) -> str:
+    """Format an ISO timestamp as 'DD Month YYYY'."""
+    if not iso:
+        return datetime.now(timezone.utc).strftime("%-d %B %Y")
+    try:
+        dt = datetime.fromisoformat(iso)
+        return dt.strftime("%-d %B %Y")
+    except ValueError:
+        return iso
+
+
+def _section_toc(analysis: FinalAnalysis, report_style: str) -> str:
+    """Build a linked table of contents based on what sections will render."""
+    entries = []
+
+    if report_style != "customer":
+        entries.append(("config", "Analysis Configuration"))
+
+    if report_style == "detailed":
+        entries.append(("synthesis", "TL;DR — Final Analysis"))
+    else:
+        if analysis.priority_flags or analysis.synthesis:
+            entries.append(("synthesis", "Synthesis"))
+
+    if analysis.conflicts:
+        entries.append(("conflicts", "Conflicts Identified"))
+
+    if analysis.recommendations:
+        entries.append(("recommendations", "Recommendations"))
+
+    if analysis.conflict_resolutions and report_style == "detailed":
+        entries.append(("deep-research", "Deep Research"))
+
+    if report_style == "detailed":
+        round1 = [o for o in analysis.module_outputs if o.round == 1]
+        round2 = [o for o in analysis.module_outputs if o.round == 2]
+        if round1:
+            entries.append(("round-1", "Round 1 — Independent Analysis"))
+        if round2:
+            entries.append(("round-2", "Round 2 — Cross-Module Revision"))
+
+    if analysis.audit:
+        entries.append(("audit", "Source &amp; Integrity Audit"))
+
+    if analysis.sources:
+        entries.append(("sources", "Sources &amp; References"))
+
+    if not entries:
+        return ""
+
+    items = "".join(f"<li><a href='#{sid}'>{label}</a></li>" for sid, label in entries)
+    return f"<nav class='toc'><strong>Contents</strong><ol>{items}</ol></nav>"
+
+
 # ── Section builders ───────────────────────────────────────────────────────
 
 def _section_config(analysis: FinalAnalysis) -> str:
@@ -285,9 +357,10 @@ def _section_synthesis(text: str) -> str:
     return f"<h3>Synthesis</h3><p>{_cite(text)}</p>"
 
 
-def _section_conflicts(conflicts: List[Conflict]) -> str:
+def _section_conflicts(conflicts: List[Conflict], anchor: bool = False) -> str:
     if not conflicts:
         return ""
+    id_attr = " id='conflicts'" if anchor else ""
     items = []
     for c in conflicts:
         cls = c.severity.lower()
@@ -298,7 +371,8 @@ def _section_conflicts(conflicts: List[Conflict]) -> str:
             f"<div>{_cite(c.description)}</div>"
             f"</div>"
         )
-    return f"<h3>Conflicts Identified</h3>{''.join(items)}"
+    heading = f"<h3{id_attr}>Conflicts Identified</h3>"
+    return f"{heading}{''.join(items)}"
 
 
 def _section_recommendations(recs: List[str]) -> str:
@@ -407,52 +481,63 @@ def _section_sources(sources: List[str]) -> str:
 
 def format_html_report(analysis: FinalAnalysis, report_style: str = "default") -> str:
     title = _e(f"Analysis Brief — {analysis.problem}")
+
+    # ── Header ──────────────────────────────────────────────
+    date_str = _format_date(analysis.generated_at)
+    source_count = f" &nbsp;·&nbsp; {len(analysis.sources)} sources" if analysis.sources else ""
     body_parts = [
         f"<h1>Analysis Brief</h1>",
         f"<p class='subtitle'>Provided by your AI-powered analyst panel &mdash; multi-perspective intelligence, synthesized.</p>",
+        f"<p class='meta'>Generated: {date_str}{source_count}</p>",
         f"<p><strong>Analysis Subject:</strong> {_e(analysis.problem)}</p>",
     ]
 
+    # ── Table of contents ────────────────────────────────────
+    body_parts.append(_section_toc(analysis, report_style))
+
     if report_style != "customer":
-        body_parts.append(_section_config(analysis))
+        body_parts.append(f"<div id='config'>{_section_config(analysis)}</div>")
         body_parts.append(_section_selection_metadata(analysis))
 
     if analysis.deactivated_disclaimer:
         body_parts.append(f"<div class='disclaimer'>{_e(analysis.deactivated_disclaimer)}</div>")
 
-    # TL;DR block
+    # ── TL;DR / Synthesis block ──────────────────────────────
     body_parts.append("<section>")
     if report_style == "detailed":
-        body_parts.append("<h2>TL;DR — Final Analysis</h2>")
+        body_parts.append("<h2 id='synthesis'>TL;DR &mdash; Final Analysis</h2>")
+    else:
+        body_parts.append("<span id='synthesis'></span>")
     body_parts.append(_section_flags(analysis.priority_flags))
     body_parts.append(_section_synthesis(analysis.synthesis))
-    body_parts.append(_section_conflicts(analysis.conflicts))
-    body_parts.append(_section_recommendations(analysis.recommendations))
+    body_parts.append(_section_conflicts(analysis.conflicts, anchor=True))
+    if analysis.recommendations:
+        body_parts.append(f"<div id='recommendations'>{_section_recommendations(analysis.recommendations)}</div>")
     body_parts.append("</section>")
 
-    # Deep research (detailed only)
+    # ── Deep research (detailed only) ────────────────────────
     if report_style == "detailed":
         dr = _section_deep_research(analysis.conflict_resolutions)
         if dr:
-            body_parts.append(f"<section>{dr}</section>")
+            body_parts.append(f"<section id='deep-research'>{dr}</section>")
 
-    # Module evidence (detailed only)
+    # ── Module evidence (detailed only) ──────────────────────
     if report_style == "detailed":
         round1 = [o for o in analysis.module_outputs if o.round == 1]
         round2 = [o for o in analysis.module_outputs if o.round == 2]
         if round1:
-            body_parts.append("<section><h2>Round 1 — Independent Analysis</h2>")
+            body_parts.append("<section id='round-1'><h2>Round 1 &mdash; Independent Analysis</h2>")
             for o in round1:
                 body_parts.append(_section_module_detail(o))
             body_parts.append("</section>")
         if round2:
-            body_parts.append("<section><h2>Round 2 — Cross-Module Revision</h2>")
+            body_parts.append("<section id='round-2'><h2>Round 2 &mdash; Cross-Module Revision</h2>")
             for o in round2:
                 body_parts.append(_section_module_detail(o))
             body_parts.append("</section>")
 
-    body_parts.append(_section_audit(analysis))
-    body_parts.append(_section_sources(analysis.sources))
+    body_parts.append(f"<div id='audit'>{_section_audit(analysis)}</div>")
+    body_parts.append(f"<div id='sources'>{_section_sources(analysis.sources)}</div>")
 
     body = "\n".join(body_parts)
     return (
