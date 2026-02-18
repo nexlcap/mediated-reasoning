@@ -5,12 +5,14 @@ import sys
 from dotenv import load_dotenv
 
 from src.llm.client import ClaudeClient, DEFAULT_MODEL
+from src.llm.prompts import ALL_MODULE_NAMES, DEFAULT_RACI_MATRIX, MODULE_SYSTEM_PROMPTS
 from src.mediator import Mediator
 from src.modules import MODULE_REGISTRY
-from src.utils.exporters import export_to_file
+from src.utils.exporters import export_all
 from src.utils.formatters import format_customer_report, format_detailed_report, format_final_analysis, format_round_summary
 
-VALID_MODULE_NAMES = {cls(None).name for cls in MODULE_REGISTRY}
+VALID_MODULE_NAMES = set(MODULE_SYSTEM_PROMPTS.keys())
+DEFAULT_MODULE_NAMES = {cls(None).name for cls in MODULE_REGISTRY}
 
 
 def parse_weight(value: str) -> tuple[str, float]:
@@ -48,12 +50,22 @@ def main():
     parser.add_argument("--verbose", action="store_true", help="Show detailed round-by-round output")
     parser.add_argument("--report", action="store_true", help="Generate a comprehensive detailed report")
     parser.add_argument("--customer-report", action="store_true", help="Generate a customer-facing report (no internal details)")
-    parser.add_argument("--output", help="Export report to file (.md, .json, .html)")
+    parser.add_argument("--output", action="store_true", help="Export reports to output/ directory (.md, .json, .html)")
     parser.add_argument(
         "--weight", action="append", type=parse_weight, default=[], metavar="MODULE=N",
         help="Set module weight (e.g. --weight legal=2). Weight 0 deactivates a module."
     )
+    parser.add_argument("--raci", action="store_true", help="Use RACI matrix for conflict resolution in synthesis")
+    parser.add_argument("--interactive", action="store_true", help="Enter interactive follow-up mode after analysis")
+    parser.add_argument("--list-modules", action="store_true", help="List available modules and exit")
+    parser.add_argument("--auto-select", action="store_true", help="Use adaptive module selection (LLM pre-pass to pick relevant modules)")
     args = parser.parse_args()
+
+    if args.list_modules:
+        for name in ALL_MODULE_NAMES:
+            marker = "(default)" if name in DEFAULT_MODULE_NAMES else "(auto-select pool)"
+            print(f"{name}  {marker}")
+        sys.exit(0)
 
     problem = args.problem
     if not problem:
@@ -67,12 +79,16 @@ def main():
         os.environ["MEDIATED_REASONING_DEBUG"] = "1"
 
     weights = dict(args.weight) if args.weight else {}
+    raci = DEFAULT_RACI_MATRIX if args.raci else None
 
     client = ClaudeClient(model=args.model)
-    mediator = Mediator(client, weights=weights)
+    mediator = Mediator(client, weights=weights, raci=raci, auto_select=args.auto_select)
 
     print(f"\nAnalyzing: {problem}\n")
-    print("Running 3-round mediated reasoning (11 API calls)...")
+    if args.auto_select:
+        print("Running adaptive module selection + 3-round mediated reasoning...")
+    else:
+        print("Running 3-round mediated reasoning (7 API calls)...")
     print("This may take a few minutes.\n")
 
     result = mediator.analyze(problem)
@@ -94,8 +110,20 @@ def main():
         print(format_final_analysis(result))
 
     if args.output:
-        export_to_file(result, args.output, report_style)
-        print(f"\nReport exported to {args.output}")
+        out_dir = export_all(result, report_style)
+        print(f"\nReports exported to {out_dir}")
+
+    if args.interactive:
+        print("\nInteractive mode — ask follow-up questions (type 'exit' to quit)")
+        while True:
+            try:
+                question = input("> ").strip()
+            except (EOFError, KeyboardInterrupt):
+                break
+            if not question or question.lower() in ("exit", "quit"):
+                break
+            response = mediator.followup(result, question)
+            print(f"\n{response}\n")
 
 
 if __name__ == "__main__":

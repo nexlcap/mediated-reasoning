@@ -2,23 +2,19 @@ import pytest
 
 from src.modules import MODULE_REGISTRY
 from src.modules.market_module import MarketModule
-from src.modules.tech_module import TechModule
 from src.modules.cost_module import CostModule
-from src.modules.legal_module import LegalModule
-from src.modules.scalability_module import ScalabilityModule
+from src.modules.risk_module import RiskModule
 
 
 class TestModuleRegistry:
-    def test_registry_has_five_modules(self):
-        assert len(MODULE_REGISTRY) == 5
+    def test_registry_has_three_modules(self):
+        assert len(MODULE_REGISTRY) == 3
 
     def test_registry_contains_all_modules(self):
         classes = set(MODULE_REGISTRY)
         assert MarketModule in classes
-        assert TechModule in classes
         assert CostModule in classes
-        assert LegalModule in classes
-        assert ScalabilityModule in classes
+        assert RiskModule in classes
 
 
 class TestModuleRound1:
@@ -26,10 +22,8 @@ class TestModuleRound1:
         "module_cls,expected_name",
         [
             (MarketModule, "market"),
-            (TechModule, "tech"),
             (CostModule, "cost"),
-            (LegalModule, "legal"),
-            (ScalabilityModule, "scalability"),
+            (RiskModule, "risk"),
         ],
     )
     def test_round1_produces_valid_output(

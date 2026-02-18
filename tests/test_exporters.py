@@ -1,9 +1,10 @@
 import json
+import os
 
 import pytest
 
-from src.models.schemas import FinalAnalysis, ModuleOutput
-from src.utils.exporters import export_html, export_json, export_markdown, export_to_file, strip_ansi
+from src.models.schemas import Conflict, FinalAnalysis, ModuleOutput
+from src.utils.exporters import export_all, export_html, export_json, export_markdown, export_to_file, strip_ansi, _slugify
 
 
 @pytest.fixture
@@ -27,7 +28,14 @@ def sample_analysis():
                 revised=True,
             ),
         ],
-        conflicts=["Market sees demand but cost flags high burn"],
+        conflicts=[
+            Conflict(
+                modules=["market", "cost"],
+                topic="burn rate",
+                description="Market sees demand but cost flags high burn",
+                severity="high",
+            )
+        ],
         synthesis="Viable but requires careful funding.",
         recommendations=["Start in one city", "Secure Series A"],
         priority_flags=["yellow: high investment required"],
@@ -167,3 +175,56 @@ class TestExportToFile:
         export_to_file(sample_analysis, path, "detailed")
         content = open(path).read()
         assert "DETAILED ANALYSIS REPORT" in content
+
+
+class TestSlugify:
+    def test_basic(self):
+        assert _slugify("Should we build a food delivery app?") == "should-we-build-a-food-delivery-app"
+
+    def test_special_chars(self):
+        assert _slugify("AI/ML & Data: 2024!") == "ai-ml-data-2024"
+
+    def test_truncation(self):
+        long = "a " * 50
+        slug = _slugify(long)
+        assert len(slug) <= 60
+
+    def test_no_trailing_dash(self):
+        slug = _slugify("a " * 50)
+        assert not slug.endswith("-")
+
+    def test_empty_string(self):
+        assert _slugify("???") == "analysis"
+
+
+class TestExportAll:
+    def test_creates_directory_structure(self, sample_analysis, tmp_path):
+        out_dir = export_all(sample_analysis, base_dir=str(tmp_path))
+        assert os.path.isdir(out_dir)
+        # Should be <base>/<slug>/<timestamp>
+        parts = os.path.relpath(out_dir, tmp_path).split(os.sep)
+        assert len(parts) == 2
+
+    def test_writes_all_three_files(self, sample_analysis, tmp_path):
+        out_dir = export_all(sample_analysis, base_dir=str(tmp_path))
+        assert os.path.isfile(os.path.join(out_dir, "report.md"))
+        assert os.path.isfile(os.path.join(out_dir, "report.json"))
+        assert os.path.isfile(os.path.join(out_dir, "report.html"))
+
+    def test_file_contents(self, sample_analysis, tmp_path):
+        out_dir = export_all(sample_analysis, base_dir=str(tmp_path))
+        md = open(os.path.join(out_dir, "report.md")).read()
+        assert "FINAL ANALYSIS" in md
+        data = json.loads(open(os.path.join(out_dir, "report.json")).read())
+        assert data["problem"] == sample_analysis.problem
+        html = open(os.path.join(out_dir, "report.html")).read()
+        assert "<html>" in html
+
+    def test_report_style_applied(self, sample_analysis, tmp_path):
+        out_dir = export_all(sample_analysis, report_style="customer", base_dir=str(tmp_path))
+        md = open(os.path.join(out_dir, "report.md")).read()
+        assert "ANALYSIS REPORT" in md
+
+    def test_slug_in_path(self, sample_analysis, tmp_path):
+        out_dir = export_all(sample_analysis, base_dir=str(tmp_path))
+        assert "should-we-build-a-food-delivery-app" in out_dir

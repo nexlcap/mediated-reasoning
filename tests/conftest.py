@@ -19,7 +19,14 @@ SAMPLE_LLM_RESPONSE = {
 }
 
 SAMPLE_SYNTHESIS_RESPONSE = {
-    "conflicts": ["Market module sees high demand but cost module flags high burn rate"],
+    "conflicts": [
+        {
+            "modules": ["market", "cost"],
+            "topic": "burn rate",
+            "description": "Market module sees high demand but cost module flags high burn rate",
+            "severity": "high",
+        }
+    ],
     "synthesis": "Overall the idea has potential but requires careful financial planning.",
     "recommendations": ["Start with a single city", "Secure Series A funding"],
     "priority_flags": ["yellow: high initial investment required"],

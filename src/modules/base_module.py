@@ -2,11 +2,23 @@ from abc import ABC, abstractmethod
 from typing import Dict, List
 
 from src.llm.client import ClaudeClient
-from src.llm.prompts import build_round1_prompt, build_round2_prompt
+from src.llm.prompts import MODULE_SYSTEM_PROMPTS, build_round1_prompt, build_round2_prompt
 from src.models.schemas import ModuleOutput
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+def create_dynamic_module(name: str, system_prompt: str, client: ClaudeClient) -> "BaseModule":
+    """Create a BaseModule subclass on-the-fly with the given name and system prompt."""
+    MODULE_SYSTEM_PROMPTS[name] = system_prompt
+
+    cls = type(
+        f"DynamicModule_{name}",
+        (BaseModule,),
+        {"name": property(lambda self, _name=name: _name)},
+    )
+    return cls(client)
 
 
 class BaseModule(ABC):

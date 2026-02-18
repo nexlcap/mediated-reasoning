@@ -3,9 +3,16 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Optional
 
 from src.llm.client import ClaudeClient
-from src.llm.prompts import build_synthesis_prompt
-from src.models.schemas import FinalAnalysis, ModuleOutput
+from src.llm.prompts import (
+    MODULE_SYSTEM_PROMPTS,
+    build_followup_prompt,
+    build_gap_check_prompt,
+    build_module_selection_prompt,
+    build_synthesis_prompt,
+)
+from src.models.schemas import AdHocModule, Conflict, FinalAnalysis, ModuleOutput, SelectionMetadata
 from src.modules import MODULE_REGISTRY
+from src.modules.base_module import create_dynamic_module
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -91,7 +98,12 @@ def _consolidate_sources(
 
     # 3. Remap inline citations in synthesis fields
     remapped_synthesis = {}
-    for key in ("conflicts", "recommendations", "priority_flags"):
+    remapped_synthesis["conflicts"] = [
+        {**c, "description": _remap_citations(c.get("description", ""), synthesis_map)}
+        for c in synthesis_result.get("conflicts", [])
+        if isinstance(c, dict)
+    ]
+    for key in ("recommendations", "priority_flags"):
         remapped_synthesis[key] = [
             _remap_citations(item, synthesis_map)
             for item in synthesis_result.get(key, [])
@@ -104,16 +116,101 @@ def _consolidate_sources(
 
 
 class Mediator:
-    def __init__(self, client: ClaudeClient, weights: Optional[Dict[str, float]] = None):
+    def __init__(self, client: ClaudeClient, weights: Optional[Dict[str, float]] = None, raci: Optional[Dict] = None, auto_select: bool = False):
         self.client = client
         self.weights = weights or {}
-        all_modules = [cls(client) for cls in MODULE_REGISTRY]
+        self.raci = raci
+        self.auto_select = auto_select
+        self.selection_metadata: Optional[SelectionMetadata] = None
+
+        if not auto_select:
+            self._init_default_modules()
+
+    def _init_default_modules(self):
+        all_modules = [cls(self.client) for cls in MODULE_REGISTRY]
         self.deactivated_modules = [
             m.name for m in all_modules if self.weights.get(m.name, 1) == 0
         ]
         self.modules = [
             m for m in all_modules if m.name not in self.deactivated_modules
         ]
+
+    def _select_modules(self, problem: str) -> None:
+        """Run the two-step LLM pre-pass: module selection + gap check."""
+        registry_by_name = {cls(None).name: cls for cls in MODULE_REGISTRY}
+
+        try:
+            # Step 1: Module selection
+            system, user = build_module_selection_prompt(problem)
+            selection_result = self.client.analyze(system, user)
+            selected_names = selection_result.get("selected_modules", [])
+            selection_reasoning = selection_result.get("reasoning", "")
+
+            # Validate against known modules
+            selected_names = [
+                n for n in selected_names if n in MODULE_SYSTEM_PROMPTS
+            ]
+            if not selected_names:
+                logger.warning("Auto-select returned no valid modules, falling back to defaults")
+                self._init_default_modules()
+                return
+
+            # Step 2: Gap check
+            system, user = build_gap_check_prompt(problem, selected_names)
+            gap_result = self.client.analyze(system, user)
+            gap_reasoning = gap_result.get("reasoning", "")
+            raw_ad_hoc = gap_result.get("ad_hoc_modules", [])
+
+            # Cap ad-hoc at 3, skip name collisions
+            existing_names = set(MODULE_SYSTEM_PROMPTS.keys()) | set(selected_names)
+            ad_hoc_modules: List[AdHocModule] = []
+            for item in raw_ad_hoc[:3]:
+                if not isinstance(item, dict):
+                    continue
+                name = item.get("name", "")
+                prompt = item.get("system_prompt", "")
+                if not name or not prompt:
+                    continue
+                if name in existing_names:
+                    continue
+                ad_hoc_modules.append(AdHocModule(name=name, system_prompt=prompt))
+                existing_names.add(name)
+
+            # Instantiate selected modules
+            modules = []
+            for name in selected_names:
+                if name in registry_by_name:
+                    modules.append(registry_by_name[name](self.client))
+                else:
+                    modules.append(
+                        create_dynamic_module(name, MODULE_SYSTEM_PROMPTS[name], self.client)
+                    )
+
+            # Instantiate ad-hoc modules
+            for adhoc in ad_hoc_modules:
+                modules.append(
+                    create_dynamic_module(adhoc.name, adhoc.system_prompt, self.client)
+                )
+
+            # Apply weight=0 deactivation
+            self.deactivated_modules = [
+                m.name for m in modules if self.weights.get(m.name, 1) == 0
+            ]
+            self.modules = [
+                m for m in modules if m.name not in self.deactivated_modules
+            ]
+
+            self.selection_metadata = SelectionMetadata(
+                auto_selected=True,
+                selected_modules=[m.name for m in self.modules],
+                selection_reasoning=selection_reasoning,
+                gap_check_reasoning=gap_reasoning,
+                ad_hoc_modules=ad_hoc_modules,
+            )
+
+        except Exception as e:
+            logger.error("Auto-select failed (%s), falling back to defaults", e)
+            self._init_default_modules()
 
     def _run_round1(self, module, problem: str) -> ModuleOutput:
         return module.run_round1(problem)
@@ -122,6 +219,9 @@ class Mediator:
         return module.run_round2(problem, round1_dicts)
 
     def analyze(self, problem: str) -> FinalAnalysis:
+        if self.auto_select:
+            self._select_modules(problem)
+
         # Round 1: Independent analysis (parallel)
         logger.info("Starting Round 1: Independent Analysis")
         round1_outputs: List[ModuleOutput] = []
@@ -173,6 +273,7 @@ class Mediator:
                 problem, all_output_dicts,
                 weights=self.weights,
                 deactivated_modules=self.deactivated_modules,
+                raci=self.raci,
             )
             try:
                 synthesis_result = self.client.analyze(system, user)
@@ -189,10 +290,16 @@ class Mediator:
         return FinalAnalysis(
             problem=problem,
             module_outputs=remapped_outputs,
-            conflicts=remapped_synthesis["conflicts"],
+            conflicts=[Conflict(**c) for c in remapped_synthesis["conflicts"]],
             synthesis=remapped_synthesis["synthesis"],
             recommendations=remapped_synthesis["recommendations"],
             priority_flags=remapped_synthesis["priority_flags"],
             sources=global_sources,
             deactivated_disclaimer=synthesis_result.get("deactivated_disclaimer", ""),
+            raci_matrix=self.raci or {},
+            selection_metadata=self.selection_metadata,
         )
+
+    def followup(self, analysis: FinalAnalysis, question: str) -> str:
+        system, user = build_followup_prompt(analysis.problem, analysis, question)
+        return self.client.chat(system, user)

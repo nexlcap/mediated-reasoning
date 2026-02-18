@@ -1,9 +1,10 @@
-from src.models.schemas import FinalAnalysis, ModuleOutput
+from src.models.schemas import Conflict, FinalAnalysis, ModuleOutput
 from src.utils.formatters import (
     BOLD, RESET, RED, YELLOW, GREEN,
     _colorize_flag,
     format_customer_report,
     format_detailed_report,
+    format_final_analysis,
 )
 
 
@@ -38,7 +39,14 @@ def _make_analysis():
                 revised=True,
             ),
         ],
-        conflicts=["Market optimism vs technical caution on timeline"],
+        conflicts=[
+            Conflict(
+                modules=["market", "technical"],
+                topic="timeline",
+                description="Market optimism vs technical caution on timeline",
+                severity="medium",
+            )
+        ],
         synthesis="The idea is viable with caveats.",
         recommendations=["Start with MVP", "Validate with users early"],
         priority_flags=["red: high burn rate risk", "green: strong market fit"],
@@ -106,6 +114,9 @@ class TestFormatDetailedReport:
     def test_contains_conflicts(self):
         analysis = _make_analysis()
         report = format_detailed_report(analysis)
+        assert "[MEDIUM]" in report
+        assert "market vs technical" in report
+        assert "timeline" in report
         assert "Market optimism vs technical caution on timeline" in report
 
     def test_contains_recommendations(self):
@@ -199,3 +210,39 @@ class TestFormatCustomerReport:
         assert "Empty test" in report
         assert "Key Findings" not in report
         assert "Recommendations" not in report
+
+
+class TestDeactivatedDisclaimer:
+    DISCLAIMER = "The cost module was deactivated and its analysis is not reflected."
+
+    def _make_analysis_with_disclaimer(self):
+        analysis = _make_analysis()
+        analysis.deactivated_disclaimer = self.DISCLAIMER
+        return analysis
+
+    def test_disclaimer_in_final_analysis(self):
+        report = format_final_analysis(self._make_analysis_with_disclaimer())
+        assert self.DISCLAIMER in report
+        assert "Note:" in report
+
+    def test_disclaimer_in_detailed_report(self):
+        report = format_detailed_report(self._make_analysis_with_disclaimer())
+        assert self.DISCLAIMER in report
+        assert "Note:" in report
+
+    def test_disclaimer_in_customer_report(self):
+        report = format_customer_report(self._make_analysis_with_disclaimer())
+        assert self.DISCLAIMER in report
+        assert "Note:" in report
+
+    def test_no_disclaimer_when_empty(self):
+        report = format_final_analysis(_make_analysis())
+        assert "Note:" not in report
+
+    def test_no_disclaimer_in_detailed_when_empty(self):
+        report = format_detailed_report(_make_analysis())
+        assert "Note:" not in report
+
+    def test_no_disclaimer_in_customer_when_empty(self):
+        report = format_customer_report(_make_analysis())
+        assert "Note:" not in report

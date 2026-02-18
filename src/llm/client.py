@@ -34,6 +34,21 @@ class ClaudeClient:
             logger.error("Failed to parse JSON from response: %s", e)
             raise
 
+    def chat(self, system_prompt: str, user_prompt: str) -> str:
+        """Send a message and return plain text (no JSON parsing)."""
+        logger.debug("Sending chat request to %s", self.model)
+        try:
+            response = self.client.messages.create(
+                model=self.model,
+                max_tokens=4096,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_prompt}],
+            )
+            return response.content[0].text
+        except anthropic.APIError as e:
+            logger.error("API error: %s", e)
+            raise
+
     @staticmethod
     def _extract_json(text: str) -> Dict:
         # Try to extract JSON from markdown code fences

@@ -1,4 +1,7 @@
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from src.models.schemas import FinalAnalysis
 
 
 def _format_round1_outputs(
@@ -53,6 +56,77 @@ MODULE_SYSTEM_PROMPTS = {
         "operational complexity at scale, and bottlenecks. "
         "Respond with ONLY valid JSON, no other text."
     ),
+    "political": (
+        "You are a political and regulatory environment expert. Evaluate the given problem/idea from a "
+        "political perspective: government policy, political stability, institutional readiness, "
+        "geopolitical factors, and public-sector dynamics. "
+        "Respond with ONLY valid JSON, no other text."
+    ),
+    "social": (
+        "You are a social impact and demographics expert. Evaluate the given problem/idea from a "
+        "societal perspective: societal impact, demographic trends, public acceptance, "
+        "equity and inclusion, and community impact. "
+        "Respond with ONLY valid JSON, no other text."
+    ),
+    "environmental": (
+        "You are an environmental and sustainability expert. Evaluate the given problem/idea from an "
+        "ecological perspective: ecological footprint, climate risk, resource consumption, "
+        "sustainability practices, and environmental regulations. "
+        "Respond with ONLY valid JSON, no other text."
+    ),
+    "ethics": (
+        "You are an ethics and responsible innovation expert. Evaluate the given problem/idea from an "
+        "ethical perspective: fairness, bias, privacy, rights, dual-use concerns, "
+        "transparency, and accountability. "
+        "Respond with ONLY valid JSON, no other text."
+    ),
+    "operational": (
+        "You are an operations and organizational expert. Evaluate the given problem/idea from an "
+        "operational perspective: internal processes, team and HR considerations, supply chain, "
+        "organizational structure, and change management. "
+        "Respond with ONLY valid JSON, no other text."
+    ),
+    "strategy": (
+        "You are a business strategy expert. Evaluate the given problem/idea from a "
+        "strategic perspective: business model, value proposition, competitive moats, "
+        "market positioning, and partnership opportunities. "
+        "Respond with ONLY valid JSON, no other text."
+    ),
+    "risk": (
+        "You are a risk analysis expert. Evaluate the given problem/idea from a "
+        "risk perspective: uncertainty assessment, downside scenarios, threat categorization, "
+        "hedging strategies, and contingency planning. "
+        "Respond with ONLY valid JSON, no other text."
+    ),
+}
+
+ALL_MODULE_NAMES = sorted(MODULE_SYSTEM_PROMPTS.keys())
+
+MODULE_DESCRIPTIONS = {
+    "market": "Market size, competitive landscape, customer demand, product-market fit",
+    "tech": "Technology stack, implementation complexity, technical risks, dependencies",
+    "cost": "Financial analysis, investment, operating costs, revenue projections, break-even",
+    "legal": "Regulatory requirements, legal risks, compliance, liability, IP",
+    "scalability": "Growth potential, infrastructure scaling, team scaling, bottlenecks",
+    "political": "Government policy, political stability, institutional readiness, geopolitics",
+    "social": "Societal impact, demographics, public acceptance, equity, community impact",
+    "environmental": "Ecological footprint, climate risk, resource consumption, sustainability",
+    "ethics": "Fairness, bias, privacy, rights, dual-use, transparency, accountability",
+    "operational": "Internal processes, team/HR, supply chain, org structure, change management",
+    "strategy": "Business model, value proposition, competitive moats, positioning, partnerships",
+    "risk": "Uncertainty, downside scenarios, threat categorization, hedging, contingency",
+}
+
+DEFAULT_RACI_MATRIX: Dict[str, Dict[str, Any]] = {
+    "Market opportunity & demand": {
+        "R": "market", "A": "market", "C": ["cost"], "I": ["risk"],
+    },
+    "Financial viability": {
+        "R": "cost", "A": "cost", "C": ["market"], "I": ["risk"],
+    },
+    "Risk assessment": {
+        "R": "risk", "A": "risk", "C": ["cost", "market"], "I": [],
+    },
 }
 
 JSON_SCHEMA_INSTRUCTION = """
@@ -106,6 +180,7 @@ def build_synthesis_prompt(
     all_outputs: List[Dict],
     weights: Optional[Dict[str, float]] = None,
     deactivated_modules: Optional[List[str]] = None,
+    raci: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> tuple[str, str]:
     system = (
         "You are a senior strategic advisor synthesizing multiple expert analyses. "
@@ -138,16 +213,39 @@ def build_synthesis_prompt(
             'deactivated and that their analysis is absent",\n'
         )
 
+    raci_instruction = ""
+    if raci:
+        rows = []
+        for topic, roles in raci.items():
+            c = ", ".join(roles["C"]) if isinstance(roles["C"], list) else roles["C"]
+            i = ", ".join(roles["I"]) if isinstance(roles["I"], list) else roles["I"]
+            rows.append(f"| {topic} | {roles['R']} | {roles['A']} | {c} | {i} |")
+        table = "\n".join(rows)
+        raci_instruction = (
+            "\n\nRACI MATRIX — Use this to resolve conflicts and prioritize recommendations:\n"
+            "| Topic | Responsible | Accountable | Consulted | Informed |\n"
+            "|---|---|---|---|---|\n"
+            f"{table}\n"
+            "When modules disagree, the Accountable module's position should carry the most "
+            "weight for that topic. Consulted modules provide secondary input. "
+            "Informed modules are noted but should not override the Accountable module."
+        )
+
     user = (
         f"Original problem:\n{problem}\n\n"
         f"All module analyses (Rounds 1 and 2):\n\n"
         f"{_format_round1_outputs(all_outputs, weights=weights)}\n\n"
         "Synthesize these analyses into a final assessment.\n\n"
-        f"{weight_instruction}{deactivated_instruction}\n\n"
+        f"{weight_instruction}{deactivated_instruction}{raci_instruction}\n\n"
         "Return your response as a JSON object with exactly these fields:\n"
         '{\n'
         f'{deactivated_field}'
-        '  "conflicts": ["conflict between modules [1]", ...],\n'
+        '  "conflicts": [\n'
+        '    {"modules": ["market", "cost"], "topic": "burn rate", '
+        '"description": "Market sees high demand but cost flags high burn rate [1][2]", '
+        '"severity": "high"},\n'
+        '    ...\n'
+        '  ],\n'
         '  "synthesis": "Overall synthesized assessment paragraph with inline citations [1][2]",\n'
         '  "recommendations": ["recommendation 1 [3]", ...],\n'
         '  "priority_flags": ["red: critical issue [1]", "yellow: caution", "green: positive"],\n'
@@ -157,5 +255,108 @@ def build_synthesis_prompt(
         'synthesis, conflicts, recommendations, and flags to reference specific sources. '
         'Each citation number must correspond to the matching numbered entry in the '
         '"sources" array. Every claim backed by data should have a citation.'
+    )
+    return system, user
+
+
+def build_module_selection_prompt(problem: str) -> tuple[str, str]:
+    system = (
+        "You are an expert at scoping multi-perspective analyses. "
+        "Given a problem, you select which analysis modules are relevant. "
+        "Respond with ONLY valid JSON, no other text."
+    )
+
+    module_list = "\n".join(
+        f"- {name}: {MODULE_DESCRIPTIONS[name]}"
+        for name in ALL_MODULE_NAMES
+    )
+
+    user = (
+        f"Problem to analyze:\n{problem}\n\n"
+        f"Available analysis modules:\n{module_list}\n\n"
+        "Select 3-7 modules that are most relevant to this problem. "
+        "Only include modules whose perspective adds meaningful value.\n\n"
+        "Return your response as a JSON object with exactly these fields:\n"
+        '{\n'
+        '  "selected_modules": ["module1", "module2", ...],\n'
+        '  "reasoning": "Brief explanation of why these modules were selected"\n'
+        '}'
+    )
+    return system, user
+
+
+def build_gap_check_prompt(
+    problem: str, selected_module_names: list[str]
+) -> tuple[str, str]:
+    system = (
+        "You are an expert at identifying analytical blind spots. "
+        "Given a problem and a set of selected analysis modules, check whether "
+        "any important perspectives are missing. "
+        "Respond with ONLY valid JSON, no other text."
+    )
+
+    selected_list = ", ".join(selected_module_names)
+    all_modules_list = "\n".join(
+        f"- {name}: {MODULE_DESCRIPTIONS[name]}"
+        for name in ALL_MODULE_NAMES
+    )
+
+    user = (
+        f"Problem to analyze:\n{problem}\n\n"
+        f"Already selected modules: {selected_list}\n\n"
+        f"Full pool of available modules:\n{all_modules_list}\n\n"
+        "Check if any significant analytical gaps remain. If so, you may propose "
+        "up to 3 ad-hoc modules with custom system prompts to fill those gaps. "
+        "Only propose ad-hoc modules if the gap is significant and not covered by "
+        "the selected modules.\n\n"
+        "Return your response as a JSON object with exactly these fields:\n"
+        '{\n'
+        '  "gaps_identified": true/false,\n'
+        '  "reasoning": "Explanation of gaps found or why coverage is sufficient",\n'
+        '  "ad_hoc_modules": [\n'
+        '    {"name": "module_name", "system_prompt": "You are a ... expert. Evaluate ..."},\n'
+        '    ...\n'
+        '  ]\n'
+        '}'
+    )
+    return system, user
+
+
+def build_followup_prompt(
+    problem: str, analysis: "FinalAnalysis", question: str
+) -> tuple[str, str]:
+    system = (
+        "You are a senior strategic advisor. You have completed a multi-perspective "
+        "analysis of a problem. Answer the user's follow-up question based on the "
+        "analysis below. Be concise and direct."
+    )
+
+    # Summarize module outputs (prefer round 2 when available)
+    module_sections = []
+    for output in analysis.module_outputs:
+        if output.round == 2 or not any(
+            o.module_name == output.module_name and o.round == 2
+            for o in analysis.module_outputs
+        ):
+            summary = output.analysis.get("summary", "")
+            module_sections.append(f"- {output.module_name}: {summary}")
+    modules_text = "\n".join(module_sections)
+
+    conflicts_text = "\n".join(
+        f"- {c.topic} ({', '.join(c.modules)}): {c.description}"
+        for c in analysis.conflicts
+    )
+
+    recommendations_text = "\n".join(
+        f"- {r}" for r in analysis.recommendations
+    )
+
+    user = (
+        f"Problem: {problem}\n\n"
+        f"Synthesis:\n{analysis.synthesis}\n\n"
+        f"Module summaries:\n{modules_text}\n\n"
+        f"Conflicts:\n{conflicts_text}\n\n"
+        f"Recommendations:\n{recommendations_text}\n\n"
+        f"Follow-up question: {question}"
     )
     return system, user

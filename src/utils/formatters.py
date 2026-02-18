@@ -1,4 +1,4 @@
-from src.models.schemas import FinalAnalysis, ModuleOutput
+from src.models.schemas import Conflict, FinalAnalysis, ModuleOutput
 
 
 # ANSI color codes
@@ -15,6 +15,19 @@ FLAG_COLORS = {
     "green": GREEN,
 }
 
+SEVERITY_COLORS = {
+    "high": RED,
+    "medium": YELLOW,
+}
+
+
+def _format_conflict(conflict: Conflict) -> str:
+    severity_tag = conflict.severity.upper()
+    color = SEVERITY_COLORS.get(conflict.severity, "")
+    reset = RESET if color else ""
+    modules = " vs ".join(conflict.modules)
+    return f"  - {color}[{severity_tag}]{reset} {modules} — {conflict.topic}: {conflict.description}"
+
 
 def _colorize_flag(flag: str) -> str:
     lower = flag.lower()
@@ -27,7 +40,12 @@ def _colorize_flag(flag: str) -> str:
 def _format_module_detail(output: ModuleOutput) -> list[str]:
     lines = [f"{CYAN}{BOLD}[{output.module_name.upper()}]{RESET}"]
     for key, value in output.analysis.items():
-        lines.append(f"  {BOLD}{key}:{RESET} {value}")
+        if isinstance(value, list):
+            lines.append(f"  {BOLD}{key}:{RESET}")
+            for item in value:
+                lines.append(f"    - {item}")
+        else:
+            lines.append(f"  {BOLD}{key}:{RESET} {value}")
     if output.flags:
         flags_str = ", ".join(_colorize_flag(f) for f in output.flags)
         lines.append(f"  {BOLD}Flags:{RESET} {flags_str}")
@@ -35,6 +53,23 @@ def _format_module_detail(output: ModuleOutput) -> list[str]:
         lines.append(f"  {BOLD}Sources:{RESET}")
         for i, source in enumerate(output.sources, 1):
             lines.append(f"    [{i}] {source}")
+    lines.append("")
+    return lines
+
+
+def _format_selection_metadata(analysis: FinalAnalysis) -> list[str]:
+    meta = analysis.selection_metadata
+    if not meta or not meta.auto_selected:
+        return []
+    lines = [
+        f"{BOLD}Adaptive Module Selection:{RESET}",
+        f"  {BOLD}Selected modules:{RESET} {', '.join(meta.selected_modules)}",
+        f"  {BOLD}Reasoning:{RESET} {meta.selection_reasoning}",
+    ]
+    if meta.ad_hoc_modules:
+        lines.append(f"  {BOLD}Ad-hoc modules:{RESET} {', '.join(m.name for m in meta.ad_hoc_modules)}")
+    if meta.gap_check_reasoning:
+        lines.append(f"  {BOLD}Gap check:{RESET} {meta.gap_check_reasoning}")
     lines.append("")
     return lines
 
@@ -62,13 +97,15 @@ def format_final_analysis(analysis: FinalAnalysis) -> str:
         f"{BOLD}Problem:{RESET} {analysis.problem}\n",
     ]
 
+    lines.extend(_format_selection_metadata(analysis))
+
     if analysis.deactivated_disclaimer:
         lines.append(f"{YELLOW}{BOLD}Note:{RESET} {YELLOW}{analysis.deactivated_disclaimer}{RESET}\n")
 
     if analysis.conflicts:
         lines.append(f"{BOLD}Conflicts Identified:{RESET}")
         for conflict in analysis.conflicts:
-            lines.append(f"  - {conflict}")
+            lines.append(_format_conflict(conflict))
         lines.append("")
 
     if analysis.priority_flags:
@@ -105,6 +142,8 @@ def format_detailed_report(analysis: FinalAnalysis) -> str:
     lines.append(f"{'='*60}{RESET}\n")
     lines.append(f"{BOLD}Problem:{RESET} {analysis.problem}\n")
 
+    lines.extend(_format_selection_metadata(analysis))
+
     if analysis.deactivated_disclaimer:
         lines.append(f"{YELLOW}{BOLD}Note:{RESET} {YELLOW}{analysis.deactivated_disclaimer}{RESET}\n")
 
@@ -126,7 +165,7 @@ def format_detailed_report(analysis: FinalAnalysis) -> str:
     if analysis.conflicts:
         lines.append(f"{BOLD}Conflicts Identified:{RESET}")
         for conflict in analysis.conflicts:
-            lines.append(f"  - {conflict}")
+            lines.append(_format_conflict(conflict))
         lines.append("")
 
     if analysis.recommendations:
@@ -178,7 +217,7 @@ def format_detailed_report(analysis: FinalAnalysis) -> str:
     lines.append(f"{'─'*60}{RESET}\n")
     if analysis.conflicts:
         for conflict in analysis.conflicts:
-            lines.append(f"  - {conflict}")
+            lines.append(_format_conflict(conflict))
         lines.append("")
     else:
         lines.append("  No conflicts identified.\n")
