@@ -452,7 +452,7 @@ class Mediator:
             future_to_module = {}
             for i, module in enumerate(eligible_modules):
                 if i > 0:
-                    time.sleep(2)  # stagger submissions to stay within token/min limits
+                    time.sleep(5)  # stagger submissions to stay within token/min limits
                 future_to_module[executor.submit(self._run_round2, module, problem, round1_dicts, searcher)] = module
             for future in as_completed(future_to_module):
                 module = future_to_module[future]
