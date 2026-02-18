@@ -128,7 +128,7 @@ class TestExportHtml:
 
     def test_customer_style(self, sample_analysis):
         html = export_html(sample_analysis, "customer")
-        assert "Analysis Report" in html
+        assert "Analysis Brief" in html
 
     def test_auto_links_urls(self):
         analysis = FinalAnalysis(

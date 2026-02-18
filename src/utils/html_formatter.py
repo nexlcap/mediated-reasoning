@@ -9,6 +9,7 @@ import re
 from typing import List
 
 from src.models.schemas import Conflict, ConflictResolution, FinalAnalysis, ModuleOutput
+from src.llm.prompts import DEFAULT_RACI_MATRIX
 
 _CITE_RE = re.compile(r"\[(\d+)\]")
 _URL_RE = re.compile(r"(https?://[^\s<>&\"]+)")
@@ -24,7 +25,8 @@ body {
   color: #1a1a1a;
   background: #fff;
 }
-h1 { font-size: 1.55rem; border-bottom: 2px solid #ddd; padding-bottom: .4rem; margin-bottom: 1.5rem; }
+h1 { font-size: 1.55rem; border-bottom: 2px solid #ddd; padding-bottom: .4rem; margin-bottom: .3rem; }
+.subtitle { font-size: .9rem; color: #777; margin: 0 0 1.5rem; font-style: italic; }
 h2 { font-size: 1.15rem; margin: 2.2rem 0 .7rem; color: #111; border-bottom: 1px solid #eee; padding-bottom: .2rem; }
 h3 { font-size: 1rem; margin: 1.4rem 0 .4rem; color: #333; }
 p  { margin: .5rem 0; }
@@ -38,19 +40,31 @@ a.cite:hover { text-decoration: underline; }
   border: 1px solid #e0e0e0;
   border-radius: 6px;
   padding: 1rem 1.25rem;
-  font-size: .9rem;
+  font-size: .88rem;
   margin-bottom: 1.5rem;
 }
-.config-box table { border-collapse: collapse; width: 100%; }
-.config-box td { padding: .2rem .4rem; vertical-align: top; }
-.config-box td:first-child {
-  font-weight: 600; color: #555;
-  white-space: nowrap; width: 1%;
-  padding-right: 1.2rem;
+.config-label {
+  font-weight: 700; font-size: .78rem; text-transform: uppercase;
+  letter-spacing: .06em; color: #777; margin-bottom: .4rem;
 }
-table.raci { border-collapse: collapse; width: 100%; font-size: .85rem; margin-top: .6rem; }
-table.raci th, table.raci td { border: 1px solid #ddd; padding: .35rem .6rem; text-align: left; }
-table.raci th { background: #f0f0f0; font-weight: 600; }
+.config-cols {
+  display: flex; gap: 2rem; flex-wrap: wrap; margin-bottom: .9rem;
+}
+.config-cols > div { flex: 1; min-width: 160px; }
+.config-cols table { border-collapse: collapse; }
+.config-cols td { padding: .15rem .4rem; vertical-align: top; }
+.config-cols td:first-child {
+  font-weight: 600; color: #555; white-space: nowrap;
+  width: 1%; padding-right: 1.2rem;
+}
+.config-raci { margin-top: .2rem; }
+.raci-note { font-weight: 400; font-style: italic; color: #999; }
+table.weights { border-collapse: collapse; width: 100%; }
+table.weights th, table.weights td { border: 1px solid #e0e0e0; padding: .25rem .55rem; text-align: left; }
+table.weights th { background: #efefef; font-weight: 600; font-size: .82rem; }
+table.raci { border-collapse: collapse; width: 100%; font-size: .83rem; margin-top: .3rem; }
+table.raci th, table.raci td { border: 1px solid #ddd; padding: .3rem .55rem; text-align: left; }
+table.raci th { background: #efefef; font-weight: 600; }
 
 /* ── Flags ──────────────────────────────────────────────── */
 ul.flags { list-style: none; padding: 0; margin: .5rem 0 1rem; }
@@ -162,10 +176,19 @@ def _flag_class(flag: str) -> str:
 
 def _section_config(analysis: FinalAnalysis) -> str:
     active = list(dict.fromkeys(o.module_name for o in analysis.module_outputs))
-    module_parts = []
+
+    # Module weights table — always shown, highlights non-default weights
+    weight_rows = []
     for name in active:
-        w = analysis.weights.get(name, 1)
-        module_parts.append(f"{_e(name)} ({w}x)" if w != 1 else _e(name))
+        w = analysis.weights.get(name, 1.0)
+        weight_cell = f"<strong>{w}x</strong>" if w != 1.0 else "1.0x"
+        weight_rows.append(f"<tr><td>{_e(name)}</td><td>{weight_cell}</td></tr>")
+    modules_table = (
+        f"<table class='weights'>"
+        f"<tr><th>Module</th><th>Weight</th></tr>"
+        f"{''.join(weight_rows)}"
+        f"</table>"
+    )
 
     deactivated = [
         name for name, w in analysis.weights.items()
@@ -174,12 +197,9 @@ def _section_config(analysis: FinalAnalysis) -> str:
 
     search_status = "enabled" if analysis.search_enabled else "disabled"
     if analysis.search_enabled and analysis.sources:
-        search_status += f" ({len(analysis.sources)} sources fetched)"
+        search_status += f" &mdash; {len(analysis.sources)} sources fetched"
 
-    rows = [
-        ("Modules", ", ".join(module_parts)),
-        ("Web search", search_status),
-    ]
+    rows = [("Web search", search_status)]
     if deactivated:
         rows.append(("Deactivated", ", ".join(_e(d) for d in deactivated)))
 
@@ -189,26 +209,32 @@ def _section_config(analysis: FinalAnalysis) -> str:
     if analysis.deep_research_enabled:
         rows.append(("Deep research", "enabled"))
 
-    trs = "".join(
-        f"<tr><td>{k}</td><td>{v}</td></tr>" for k, v in rows
+    info_trs = "".join(f"<tr><td>{k}</td><td>{v}</td></tr>" for k, v in rows)
+
+    # RACI — use run-specific matrix if set, else fall back to default
+    raci_source = analysis.raci_matrix if analysis.raci_matrix else DEFAULT_RACI_MATRIX
+    header = "<tr><th>Topic</th><th>Responsible</th><th>Accountable</th><th>Consulted</th><th>Informed</th></tr>"
+    raci_rows = []
+    for topic, roles in raci_source.items():
+        c = ", ".join(roles["C"]) if isinstance(roles.get("C"), list) else (roles.get("C") or "")
+        i = ", ".join(roles["I"]) if isinstance(roles.get("I"), list) else (roles.get("I") or "")
+        raci_rows.append(
+            f"<tr><td>{_e(topic)}</td><td>{_e(roles.get('R',''))}</td>"
+            f"<td>{_e(roles.get('A',''))}</td><td>{_e(c)}</td><td>{_e(i)}</td></tr>"
+        )
+    raci_label = "custom" if analysis.raci_matrix else "default"
+    raci_html = (
+        f"<div class='config-label'>RACI Matrix <span class='raci-note'>({raci_label})</span></div>"
+        f"<table class='raci'>{header}{''.join(raci_rows)}</table>"
     )
-    raci_html = ""
-    if analysis.raci_matrix:
-        header = "<tr><th>Topic</th><th>Responsible</th><th>Accountable</th><th>Consulted</th><th>Informed</th></tr>"
-        raci_rows = []
-        for topic, roles in analysis.raci_matrix.items():
-            c = ", ".join(roles["C"]) if isinstance(roles.get("C"), list) else (roles.get("C") or "")
-            i = ", ".join(roles["I"]) if isinstance(roles.get("I"), list) else (roles.get("I") or "")
-            raci_rows.append(
-                f"<tr><td>{_e(topic)}</td><td>{_e(roles.get('R',''))}</td>"
-                f"<td>{_e(roles.get('A',''))}</td><td>{_e(c)}</td><td>{_e(i)}</td></tr>"
-            )
-        raci_html = f"<table class='raci'>{header}{''.join(raci_rows)}</table>"
 
     return (
         f"<div class='config-box'>"
-        f"<table>{trs}</table>"
-        f"{raci_html}"
+        f"<div class='config-cols'>"
+        f"<div><div class='config-label'>Modules &amp; Weights</div>{modules_table}</div>"
+        f"<div><table>{info_trs}</table></div>"
+        f"</div>"
+        f"<div class='config-raci'>{raci_html}</div>"
         f"</div>"
     )
 
@@ -317,8 +343,12 @@ def _section_sources(sources: List[str]) -> str:
 # ── Public entry point ─────────────────────────────────────────────────────
 
 def format_html_report(analysis: FinalAnalysis, report_style: str = "default") -> str:
-    title = _e(f"Analysis Report — {analysis.problem}")
-    body_parts = [f"<h1>Analysis Report</h1><p><strong>Problem:</strong> {_e(analysis.problem)}</p>"]
+    title = _e(f"Analysis Brief — {analysis.problem}")
+    body_parts = [
+        f"<h1>Analysis Brief</h1>",
+        f"<p class='subtitle'>Provided by your AI-powered analyst panel &mdash; multi-perspective intelligence, synthesized.</p>",
+        f"<p><strong>Analysis Subject:</strong> {_e(analysis.problem)}</p>",
+    ]
 
     if report_style != "customer":
         body_parts.append(_section_config(analysis))
