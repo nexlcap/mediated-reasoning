@@ -13,12 +13,13 @@ Layer 1 (prompt linter) can also be run directly without a report file:
 """
 import argparse
 import json
+import os
 import sys
 
 from dotenv import load_dotenv
 load_dotenv()
 
-from src.models.schemas import FinalAnalysis
+from src.models.schemas import AuditSummary, ConsistencyResult, FinalAnalysis, GroundingResult
 
 
 def main() -> int:
@@ -35,6 +36,11 @@ def main() -> int:
     parser.add_argument(
         "--sample-rate", type=float, default=0.2,
         help="Fraction of citations to sample for Layer 4 (default: 0.2)",
+    )
+    parser.add_argument(
+        "--style", default="detailed",
+        choices=["default", "detailed", "customer"],
+        help="Report style for regenerated HTML/markdown (default: detailed)",
     )
     args = parser.parse_args()
 
@@ -120,6 +126,14 @@ def main() -> int:
                         for item in items:
                             print(f"  [{item['citation']}] {item['sentence'][:120]}...")
                             print(f"       {item['url']}")
+            # Store in audit summary for write-back
+            if analysis is not None:
+                if analysis.audit is None:
+                    analysis.audit = AuditSummary()
+                analysis.audit.layer4_ran = True
+                analysis.audit.layer4_results = [
+                    GroundingResult(**r) for r in (results or [])
+                ]
 
         elif layer == 5:
             print("R1→R2 Consistency")
@@ -137,8 +151,36 @@ def main() -> int:
                         print(f"\n  [{r['module']}]")
                         for issue in r["issues"]:
                             print(f"    ✗ {issue}")
+            # Store in audit summary for write-back
+            if analysis is not None:
+                if analysis.audit is None:
+                    analysis.audit = AuditSummary()
+                analysis.audit.layer5_ran = True
+                analysis.audit.layer5_results = [
+                    ConsistencyResult(**r) for r in (results or [])
+                ]
+
+    # Write results back to report files if layers 4 or 5 ran
+    if analysis is not None and args.report and any(l in layers for l in (4, 5)):
+        _write_back(args.report, analysis, args.style)
 
     return exit_code
+
+
+def _write_back(report_path: str, analysis: FinalAnalysis, style: str) -> None:
+    from src.utils.exporters import export_to_file
+    out_dir = os.path.dirname(os.path.abspath(report_path))
+
+    # Overwrite JSON with updated audit fields
+    export_to_file(analysis, report_path)
+
+    # Regenerate HTML and markdown in the same directory
+    for ext in (".html", ".md"):
+        path = os.path.join(out_dir, f"report{ext}")
+        if os.path.exists(path):
+            export_to_file(analysis, path, style)
+
+    print(f"\nReport updated: {out_dir}")
 
 
 if __name__ == "__main__":

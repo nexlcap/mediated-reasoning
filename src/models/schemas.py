@@ -64,6 +64,19 @@ class UrlCheckResult(BaseModel):
     ok: bool
 
 
+class GroundingResult(BaseModel):
+    verdict: str        # SUPPORTED / PARTIAL / UNSUPPORTED / FETCH_FAILED / UNKNOWN
+    citation: str       # e.g. "[3]"
+    sentence: str       # the claim that was checked
+    url: str            # source URL that was fetched
+
+
+class ConsistencyResult(BaseModel):
+    module: str
+    ok: bool
+    issues: List[str] = Field(default_factory=list)
+
+
 class AuditSummary(BaseModel):
     layer1_passed: bool = True
     layer1_violations: List[str] = Field(default_factory=list)
@@ -72,6 +85,10 @@ class AuditSummary(BaseModel):
     layer3_total: int = 0
     layer3_ok: int = 0
     layer3_failures: List[UrlCheckResult] = Field(default_factory=list)
+    layer4_ran: bool = False
+    layer4_results: List[GroundingResult] = Field(default_factory=list)
+    layer5_ran: bool = False
+    layer5_results: List[ConsistencyResult] = Field(default_factory=list)
 
 
 class FinalAnalysis(BaseModel):

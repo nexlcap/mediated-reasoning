@@ -161,6 +161,7 @@ table.audit-table td:first-child { font-weight: 600; color: #555; white-space: n
 .audit-warn { color: #c47d00; font-weight: 700; }
 .audit-failures { margin: .5rem 0 0; padding-left: 1.4rem; font-size: .85rem; color: #555; }
 .audit-failures li { margin-bottom: .2rem; }
+p.audit-section-label { margin: .8rem 0 .2rem; font-size: .82rem; font-weight: 700; color: #555; text-transform: uppercase; letter-spacing: .04em; }
 
 /* ── Disclaimer note ────────────────────────────────────── */
 .disclaimer {
@@ -441,6 +442,34 @@ def _section_audit(analysis: FinalAnalysis) -> str:
             reachable += " <span class='audit-warn'>&#9888; issues below</span>"
         rows.append(("URL reachability", reachable))
 
+    if audit.layer4_ran:
+        results = audit.layer4_results
+        by_verdict: dict = {}
+        for r in results:
+            by_verdict.setdefault(r.verdict, []).append(r)
+        total = len(results)
+        supported = len(by_verdict.get("SUPPORTED", []))
+        partial = len(by_verdict.get("PARTIAL", []))
+        unsupported = len(by_verdict.get("UNSUPPORTED", []))
+        failed = len(by_verdict.get("FETCH_FAILED", [])) + len(by_verdict.get("UNKNOWN", []))
+        summary = f"{supported}/{total} supported"
+        if partial:
+            summary += f", {partial} partial"
+        if unsupported:
+            summary += f", {unsupported} unsupported"
+        if failed:
+            summary += f", {failed} fetch failed"
+        if unsupported or failed:
+            summary += " <span class='audit-warn'>&#9888; issues below</span>"
+        rows.append(("Grounding check", summary if total else "No citations sampled"))
+
+    if audit.layer5_ran:
+        results5 = audit.layer5_results
+        total5 = len(results5)
+        ok5 = sum(1 for r in results5 if r.ok)
+        badge = _badge(ok5 == total5) if total5 else "<span class='audit-warn'>No pairs found</span>"
+        rows.append(("R1→R2 consistency", f"{ok5}/{total5} modules consistent &nbsp;{badge}" if total5 else badge))
+
     trs = "".join(f"<tr><td>{k}</td><td>{v}</td></tr>" for k, v in rows)
     table = f"<table class='audit-table'>{trs}</table>"
 
@@ -459,10 +488,36 @@ def _section_audit(analysis: FinalAnalysis) -> str:
             items.append(f"<li><code>[{status}]</code> <a href='{_e(f.url)}'>{_e(f.url)}</a> {_e(note)}</li>")
         failures_html = f"<ul class='audit-failures'>{''.join(items)}</ul>"
 
+    layer4_html = ""
+    if audit.layer4_ran and audit.layer4_results:
+        bad = [r for r in audit.layer4_results if r.verdict != "SUPPORTED"]
+        if bad:
+            items = []
+            icons = {"PARTIAL": "~", "UNSUPPORTED": "✗", "FETCH_FAILED": "?", "UNKNOWN": "?"}
+            for r in bad:
+                icon = icons.get(r.verdict, "?")
+                items.append(
+                    f"<li><code>{_e(r.citation)}</code> "
+                    f"<span class='audit-warn'>{icon} {_e(r.verdict)}</span> "
+                    f"— {_e(r.sentence[:140])}{'…' if len(r.sentence) > 140 else ''} "
+                    f"<a href='{_e(r.url)}'>[source]</a></li>"
+                )
+            layer4_html = f"<p class='audit-section-label'>Grounding issues:</p><ul class='audit-failures'>{''.join(items)}</ul>"
+
+    layer5_html = ""
+    if audit.layer5_ran and audit.layer5_results:
+        bad5 = [r for r in audit.layer5_results if not r.ok]
+        if bad5:
+            items = []
+            for r in bad5:
+                issue_list = "".join(f"<li>{_e(i)}</li>" for i in r.issues)
+                items.append(f"<li><strong>{_e(r.module)}</strong><ul>{issue_list}</ul></li>")
+            layer5_html = f"<p class='audit-section-label'>Consistency issues:</p><ul class='audit-failures'>{''.join(items)}</ul>"
+
     return (
         f"<div class='audit-box'>"
         f"<h2>Source &amp; Integrity Audit</h2>"
-        f"{table}{violations_html}{failures_html}"
+        f"{table}{violations_html}{failures_html}{layer4_html}{layer5_html}"
         f"</div>"
     )
 

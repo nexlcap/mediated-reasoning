@@ -200,12 +200,44 @@ def _format_audit(analysis: FinalAnalysis) -> list[str]:
         warn = f"  {YELLOW}⚠ {len(audit.layer3_failures)} issue(s) below{RESET}" if audit.layer3_failures else ""
         lines.append(f"  URL reachability:    {audit.layer3_ok}/{audit.layer3_total} ({pct}%){warn}")
 
+    if audit.layer4_ran:
+        r4 = audit.layer4_results
+        total = len(r4)
+        supported = sum(1 for r in r4 if r.verdict == "SUPPORTED")
+        if total:
+            bad = total - supported
+            warn = f"  {YELLOW}⚠ {bad} issue(s) below{RESET}" if bad else ""
+            lines.append(f"  Grounding check:     {supported}/{total} supported{warn}")
+        else:
+            lines.append(f"  Grounding check:     No citations sampled")
+
+    if audit.layer5_ran:
+        r5 = audit.layer5_results
+        total5 = len(r5)
+        ok5 = sum(1 for r in r5 if r.ok)
+        status5 = _status(ok5 == total5) if total5 else f"{YELLOW}No pairs found{RESET}"
+        lines.append(f"  R1→R2 consistency:   {ok5}/{total5} modules consistent  {status5}" if total5 else f"  R1→R2 consistency:   {status5}")
+
     for v in audit.layer1_violations + audit.layer2_violations:
         lines.append(f"    {RED}✗ {v}{RESET}")
 
     for f in audit.layer3_failures:
         status = f.status or "ERR"
         lines.append(f"    {YELLOW}[{status}] {f.url}{RESET}")
+
+    if audit.layer4_ran:
+        icons = {"PARTIAL": "~", "UNSUPPORTED": "✗", "FETCH_FAILED": "?", "UNKNOWN": "?"}
+        for r in audit.layer4_results:
+            if r.verdict != "SUPPORTED":
+                icon = icons.get(r.verdict, "?")
+                lines.append(f"    {YELLOW}{icon} {r.citation} {r.verdict}: {r.sentence[:100]}…{RESET}")
+
+    if audit.layer5_ran:
+        for r in audit.layer5_results:
+            if not r.ok:
+                lines.append(f"    {YELLOW}[{r.module}]{RESET}")
+                for issue in r.issues:
+                    lines.append(f"      {RED}✗ {issue}{RESET}")
 
     lines.append("")
     return lines
