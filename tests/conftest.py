@@ -36,8 +36,9 @@ SAMPLE_SYNTHESIS_RESPONSE = {
 
 @pytest.fixture(autouse=True)
 def disable_search_prepass():
-    """Prevent the Tavily search pre-pass from firing in unit tests."""
-    with patch("src.search.searcher.SearchPrePass.run", return_value=None):
+    """Prevent Tavily search from firing in unit tests."""
+    with patch("src.search.searcher.SearchPrePass.run", return_value=None), \
+         patch("src.search.searcher.SearchPrePass.run_for_module", return_value=None):
         yield
 
 

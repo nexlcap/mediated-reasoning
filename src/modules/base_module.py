@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from src.llm.client import ClaudeClient
 from src.llm.prompts import MODULE_SYSTEM_PROMPTS, build_round1_prompt, build_round2_prompt
@@ -30,8 +30,16 @@ class BaseModule(ABC):
     def name(self) -> str:
         ...
 
-    def run_round1(self, problem: str, search_context=None) -> ModuleOutput:
+    def run_round1(self, problem: str, searcher=None) -> ModuleOutput:
         logger.info("Running %s module - Round 1", self.name)
+        search_context = None
+        if searcher:
+            search_context = searcher.run_for_module(
+                problem,
+                self.name,
+                MODULE_SYSTEM_PROMPTS.get(self.name, ""),
+                round_num=1,
+            )
         system, user = build_round1_prompt(self.name, problem, search_context)
         result = self.client.analyze(system, user)
         return ModuleOutput(
@@ -44,9 +52,20 @@ class BaseModule(ABC):
         )
 
     def run_round2(
-        self, problem: str, round1_outputs: List[Dict], search_context=None
+        self, problem: str, round1_outputs: List[Dict], searcher=None
     ) -> ModuleOutput:
         logger.info("Running %s module - Round 2", self.name)
+        my_r1 = next((o for o in round1_outputs if o["module_name"] == self.name), None)
+        prior_analysis = my_r1.get("analysis") if my_r1 else None
+        search_context = None
+        if searcher:
+            search_context = searcher.run_for_module(
+                problem,
+                self.name,
+                MODULE_SYSTEM_PROMPTS.get(self.name, ""),
+                round_num=2,
+                prior_analysis=prior_analysis,
+            )
         system, user = build_round2_prompt(self.name, problem, round1_outputs, search_context)
         result = self.client.analyze(system, user)
         return ModuleOutput(
