@@ -10,7 +10,8 @@ from src.llm.prompts import (
     build_module_selection_prompt,
     build_synthesis_prompt,
 )
-from src.models.schemas import AdHocModule, Conflict, FinalAnalysis, ModuleOutput, SelectionMetadata
+from src.models.schemas import AdHocModule, Conflict, FinalAnalysis, ModuleOutput, SearchContext, SelectionMetadata
+from src.search import SearchPrePass
 from src.modules import MODULE_REGISTRY
 from src.modules.base_module import create_dynamic_module
 from src.utils.logger import get_logger
@@ -116,11 +117,12 @@ def _consolidate_sources(
 
 
 class Mediator:
-    def __init__(self, client: ClaudeClient, weights: Optional[Dict[str, float]] = None, raci: Optional[Dict] = None, auto_select: bool = False):
+    def __init__(self, client: ClaudeClient, weights: Optional[Dict[str, float]] = None, raci: Optional[Dict] = None, auto_select: bool = False, search: bool = True):
         self.client = client
         self.weights = weights or {}
         self.raci = raci
         self.auto_select = auto_select
+        self.search = search
         self.selection_metadata: Optional[SelectionMetadata] = None
 
         if not auto_select:
@@ -212,22 +214,28 @@ class Mediator:
             logger.error("Auto-select failed (%s), falling back to defaults", e)
             self._init_default_modules()
 
-    def _run_round1(self, module, problem: str) -> ModuleOutput:
-        return module.run_round1(problem)
+    def _run_round1(self, module, problem: str, search_context: Optional[SearchContext] = None) -> ModuleOutput:
+        return module.run_round1(problem, search_context)
 
-    def _run_round2(self, module, problem: str, round1_dicts: list) -> ModuleOutput:
-        return module.run_round2(problem, round1_dicts)
+    def _run_round2(self, module, problem: str, round1_dicts: list, search_context: Optional[SearchContext] = None) -> ModuleOutput:
+        return module.run_round2(problem, round1_dicts, search_context)
 
     def analyze(self, problem: str) -> FinalAnalysis:
         if self.auto_select:
             self._select_modules(problem)
+
+        # Search pre-pass: fetch grounded sources before Round 1
+        search_context: Optional[SearchContext] = None
+        if self.search:
+            logger.info("Running search pre-pass")
+            search_context = SearchPrePass(self.client).run(problem)
 
         # Round 1: Independent analysis (parallel)
         logger.info("Starting Round 1: Independent Analysis")
         round1_outputs: List[ModuleOutput] = []
         with ThreadPoolExecutor(max_workers=len(self.modules)) as executor:
             future_to_module = {
-                executor.submit(self._run_round1, module, problem): module
+                executor.submit(self._run_round1, module, problem, search_context): module
                 for module in self.modules
             }
             for future in as_completed(future_to_module):
@@ -249,7 +257,7 @@ class Mediator:
         round2_outputs: List[ModuleOutput] = []
         with ThreadPoolExecutor(max_workers=len(eligible_modules) or 1) as executor:
             future_to_module = {
-                executor.submit(self._run_round2, module, problem, round1_dicts): module
+                executor.submit(self._run_round2, module, problem, round1_dicts, search_context): module
                 for module in eligible_modules
             }
             for future in as_completed(future_to_module):
@@ -274,6 +282,7 @@ class Mediator:
                 weights=self.weights,
                 deactivated_modules=self.deactivated_modules,
                 raci=self.raci,
+                search_context=search_context,
             )
             try:
                 synthesis_result = self.client.analyze(system, user)
@@ -298,6 +307,7 @@ class Mediator:
             deactivated_disclaimer=synthesis_result.get("deactivated_disclaimer", ""),
             raci_matrix=self.raci or {},
             selection_metadata=self.selection_metadata,
+            search_context=search_context,
         )
 
     def followup(self, analysis: FinalAnalysis, question: str) -> str:

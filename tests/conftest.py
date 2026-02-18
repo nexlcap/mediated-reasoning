@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from src.llm.client import ClaudeClient
 from src.models.schemas import ModuleOutput
@@ -32,6 +32,13 @@ SAMPLE_SYNTHESIS_RESPONSE = {
     "priority_flags": ["yellow: high initial investment required"],
     "sources": ["Crunchbase Funding Data 2024", "Deloitte Restaurant Industry Outlook"],
 }
+
+
+@pytest.fixture(autouse=True)
+def disable_search_prepass():
+    """Prevent the Tavily search pre-pass from firing in unit tests."""
+    with patch("src.search.searcher.SearchPrePass.run", return_value=None):
+        yield
 
 
 @pytest.fixture

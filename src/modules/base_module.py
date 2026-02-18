@@ -30,9 +30,9 @@ class BaseModule(ABC):
     def name(self) -> str:
         ...
 
-    def run_round1(self, problem: str) -> ModuleOutput:
+    def run_round1(self, problem: str, search_context=None) -> ModuleOutput:
         logger.info("Running %s module - Round 1", self.name)
-        system, user = build_round1_prompt(self.name, problem)
+        system, user = build_round1_prompt(self.name, problem, search_context)
         result = self.client.analyze(system, user)
         return ModuleOutput(
             module_name=self.name,
@@ -44,10 +44,10 @@ class BaseModule(ABC):
         )
 
     def run_round2(
-        self, problem: str, round1_outputs: List[Dict]
+        self, problem: str, round1_outputs: List[Dict], search_context=None
     ) -> ModuleOutput:
         logger.info("Running %s module - Round 2", self.name)
-        system, user = build_round2_prompt(self.name, problem, round1_outputs)
+        system, user = build_round2_prompt(self.name, problem, round1_outputs, search_context)
         result = self.client.analyze(system, user)
         return ModuleOutput(
             module_name=self.name,

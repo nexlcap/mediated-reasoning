@@ -142,22 +142,26 @@ Return your response as a JSON object with exactly these fields:
   "sources": ["1. Source for finding 1", "2. Source for finding 2", ...]
 }
 
-IMPORTANT: Use numbered inline citations like [1], [2], etc. within your analysis text, findings, opportunities, risks, and flags to reference specific sources. Each citation number must correspond to the matching numbered entry in the "sources" array. Every claim backed by data should have a citation.
+IMPORTANT: Use numbered inline citations like [1], [2], etc. within your analysis text, findings, opportunities, risks, and flags to reference specific sources. Each citation number must correspond to the matching numbered entry in the "sources" array. Every claim backed by data should have a citation. When grounded research context is provided above, cite those real sources by their [N] numbers and include their titles and URLs in the sources array — do not fabricate sources.
 """
 
 
-def build_round1_prompt(module_name: str, problem: str) -> tuple[str, str]:
+def build_round1_prompt(module_name: str, problem: str, search_context=None) -> tuple[str, str]:
     system = MODULE_SYSTEM_PROMPTS[module_name]
+    search_section = ""
+    if search_context:
+        search_section = search_context.format_for_prompt() + "\n\n"
     user = (
         f"Analyze this problem/idea independently:\n\n"
         f"{problem}\n\n"
+        f"{search_section}"
         f"{JSON_SCHEMA_INSTRUCTION}"
     )
     return system, user
 
 
 def build_round2_prompt(
-    module_name: str, problem: str, round1_outputs: List[Dict]
+    module_name: str, problem: str, round1_outputs: List[Dict], search_context=None
 ) -> tuple[str, str]:
     system = MODULE_SYSTEM_PROMPTS[module_name] + (
         "\n\nYou are now in Round 2. You have seen the other modules' Round 1 analyses. "
@@ -165,10 +169,14 @@ def build_round2_prompt(
         "disagreements, or new insights from cross-module review."
     )
     other_outputs = [o for o in round1_outputs if o["module_name"] != module_name]
+    search_section = ""
+    if search_context:
+        search_section = search_context.format_for_prompt() + "\n\n"
     user = (
         f"Original problem:\n{problem}\n\n"
         f"Other modules' Round 1 analyses:\n\n"
         f"{_format_round1_outputs(other_outputs)}\n\n"
+        f"{search_section}"
         f"Now provide your revised analysis for the {module_name} perspective.\n\n"
         f"{JSON_SCHEMA_INSTRUCTION}"
     )
@@ -181,6 +189,7 @@ def build_synthesis_prompt(
     weights: Optional[Dict[str, float]] = None,
     deactivated_modules: Optional[List[str]] = None,
     raci: Optional[Dict[str, Dict[str, Any]]] = None,
+    search_context=None,
 ) -> tuple[str, str]:
     system = (
         "You are a senior strategic advisor synthesizing multiple expert analyses. "
@@ -231,10 +240,28 @@ def build_synthesis_prompt(
             "Informed modules are noted but should not override the Accountable module."
         )
 
+    search_section = ""
+    if search_context:
+        search_section = search_context.format_for_prompt() + "\n\n"
+
+    sources_instruction = (
+        'IMPORTANT: Use numbered inline citations like [1], [2], etc. within your '
+        'synthesis, conflicts, recommendations, and flags to reference specific sources. '
+        'Each citation number must correspond to the matching numbered entry in the '
+        '"sources" array. Every claim backed by data should have a citation.'
+    )
+    if search_context:
+        sources_instruction += (
+            ' Only cite sources from the Grounded Research Context provided above — '
+            'do not fabricate new sources. Your "sources" array must only contain '
+            'entries from that list (title + URL).'
+        )
+
     user = (
         f"Original problem:\n{problem}\n\n"
         f"All module analyses (Rounds 1 and 2):\n\n"
         f"{_format_round1_outputs(all_outputs, weights=weights)}\n\n"
+        f"{search_section}"
         "Synthesize these analyses into a final assessment.\n\n"
         f"{weight_instruction}{deactivated_instruction}{raci_instruction}\n\n"
         "Return your response as a JSON object with exactly these fields:\n"
@@ -249,12 +276,9 @@ def build_synthesis_prompt(
         '  "synthesis": "Overall synthesized assessment paragraph with inline citations [1][2]",\n'
         '  "recommendations": ["recommendation 1 [3]", ...],\n'
         '  "priority_flags": ["red: critical issue [1]", "yellow: caution", "green: positive"],\n'
-        '  "sources": ["1. Source name", "2. Source name", ...]\n'
+        '  "sources": ["1. Title — URL", "2. Title — URL", ...]\n'
         '}\n\n'
-        'IMPORTANT: Use numbered inline citations like [1], [2], etc. within your '
-        'synthesis, conflicts, recommendations, and flags to reference specific sources. '
-        'Each citation number must correspond to the matching numbered entry in the '
-        '"sources" array. Every claim backed by data should have a citation.'
+        f'{sources_instruction}'
     )
     return system, user
 
