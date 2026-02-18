@@ -121,8 +121,39 @@ class ConflictResolution(BaseModel):
     updated_recommendation: str     # concrete action step derived from the verdict
     sources: List[str]              # cleared after consolidation into FinalAnalysis.sources
 
+class UrlCheckResult(BaseModel):
+    url: str
+    status: Optional[int]           # HTTP status code, or None if connection error
+    error: Optional[str]            # Error message if connection failed
+    ok: bool                        # True if status 2xx/3xx and no error
+
+class GroundingResult(BaseModel):
+    verdict: str        # SUPPORTED / PARTIAL / UNSUPPORTED / FETCH_FAILED / UNKNOWN
+    citation: str       # e.g. "[3]"
+    sentence: str       # the claim that was checked against the source
+    url: str            # source URL that was fetched for verification
+
+class ConsistencyResult(BaseModel):
+    module: str         # module name
+    ok: bool            # True if no new uncited facts found in Round 2
+    issues: List[str]   # descriptions of new concrete facts introduced without citation
+
+class AuditSummary(BaseModel):
+    layer1_passed: bool             # Prompt constraint linter: all checks passed
+    layer1_violations: List[str]    # Constraint phrases missing from prompts
+    layer2_passed: bool             # Citation integrity: no orphan refs, all sources have URLs
+    layer2_violations: List[str]    # Specific integrity failures
+    layer3_total: int               # Total URLs checked
+    layer3_ok: int                  # URLs that returned 2xx/3xx
+    layer3_failures: List[UrlCheckResult] # URLs that failed reachability checks
+    layer4_ran: bool                # Whether grounding verifier (Layer 4) was run
+    layer4_results: List[GroundingResult] # Per-citation grounding verdicts (sampled)
+    layer5_ran: bool                # Whether R1→R2 consistency checker (Layer 5) was run
+    layer5_results: List[ConsistencyResult] # Per-module consistency results
+
 class FinalAnalysis(BaseModel):
     problem: str
+    generated_at: str               # ISO 8601 UTC timestamp set by mediator.analyze()
     module_outputs: List[ModuleOutput]
     conflicts: List[Conflict]           # Structured conflict objects
     synthesis: str
@@ -137,6 +168,7 @@ class FinalAnalysis(BaseModel):
     conflict_resolutions: List[ConflictResolution] # Populated when --deep-research is used
     deep_research_enabled: bool         # Whether the deep research round ran
     search_context: Optional[SearchContext] # Raw search results from the pre-pass (queries + results)
+    audit: Optional[AuditSummary]       # Layers 1–3 populated automatically; layers 4–5 written back by audit CLI
 
 class SearchResult(BaseModel):
     title: str                  # Page title
@@ -335,6 +367,13 @@ Several layers prevent LLM-fabricated sources and unsupported claims from appear
 - **Conceptual errors** — A module can state something that is factually wrong about how a technology, regulation, or market works, regardless of whether it cites a source. This reflects training data limits and is not addressable through grounding constraints alone.
 - **Round 2 new-fact constraint** — The R2 system prompt explicitly forbids introducing new statistics, percentages, version numbers, or named metrics that are not present in the module's own Round 1 output or the Grounded Research Context. Any new concrete figure must carry an inline `[N]` citation. Modules are also instructed not to soften or retract critical Round 1 findings to reach cross-module consensus. This directly addresses the cross-module amplification problem identified by the Layer 5 consistency audit.
 - **Cross-module amplification (residual)** — If a Round 1 module makes an uncited claim, Round 2 modules see it as "context" and may treat it as established fact. The R2 constraint above reduces but does not eliminate this: a module can still reason from another module's uncited claim as long as it does not introduce new numbers. Full elimination would require per-claim provenance tracking across rounds.
+
+### HTML report enhancements: timestamp, table of contents, always-visible config
+Three additions improve the HTML report's professionalism and navigability:
+
+- **Generation timestamp** — `FinalAnalysis.generated_at` stores an ISO 8601 UTC string set in `mediator.analyze()`. The HTML formatter renders it as a human-readable `"D Month YYYY"` line below the subtitle (e.g. *Generated: 18 February 2026 · 86 sources*). Placed directly under the subtitle so the reader immediately knows how fresh the analysis is.
+- **Linked table of contents** — A `<nav class='toc'>` is inserted between the header block and the config box. It is built dynamically: only sections that actually render for the current `report_style` appear. Each entry is an anchor link (`href='#section-id'`) to an `id=` attribute on the corresponding `<section>` or `<h2>`. `scroll-behavior: smooth` in CSS gives fluid scrolling. This mirrors the consulting report convention: title → date → TOC → body.
+- **Always-visible weights table and RACI matrix** — Module weights are shown as a formatted table even when all weights are 1.0×, so the reader can verify the analysis is unweighted. The RACI matrix is always rendered; if no custom RACI was provided, the default matrix from `DEFAULT_RACI_MATRIX` is used with a "(default)" label.
 
 ### Why a dedicated `deactivated_disclaimer` field?
 When modules are deactivated via `--weight module=0`, the synthesis must include a disclaimer noting their absence. Initially this was a free-text instruction in the prompt ("you MUST include a disclaimer..."), but the LLM consistently ignored it — especially when other modules partially covered the deactivated module's domain. Adding `deactivated_disclaimer` as a required field in the JSON schema forces the LLM to populate it, making the disclaimer reliable rather than discretionary.
