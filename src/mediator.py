@@ -24,6 +24,15 @@ def _strip_source_prefix(source: str) -> str:
     return re.sub(r"^\d+\.\s*", "", source)
 
 
+_URL_IN_SOURCE = re.compile(r"https?://[^\s]+")
+
+
+def _extract_url_from_source(source: str) -> str:
+    """Extract URL from a source string, or empty string if none."""
+    m = _URL_IN_SOURCE.search(source)
+    return m.group(0).rstrip(".,)\"'") if m else ""
+
+
 def _remap_citations(text: str, index_map: Dict[int, int]) -> str:
     """Replace [N] citation markers with remapped global indices."""
     def _replace(m):
@@ -56,32 +65,48 @@ def _consolidate_sources(
 
     Returns (global_sources, remapped_outputs, remapped_synthesis_fields).
     """
-    # 1. Build global source list, deduplicating by stripped text
+    # 1. Build global source list, deduplicating by URL (preferred) then text
     global_sources: List[str] = []
-    seen: Dict[str, int] = {}  # stripped source text -> 1-based global index
+    seen_text: Dict[str, int] = {}   # stripped text -> 1-based global index
+    seen_url: Dict[str, int] = {}    # URL -> 1-based global index
+
+    def _add_source(raw_source: str) -> int:
+        """Add source to global list (deduplicating by URL then text). Returns 1-based index."""
+        stripped = _strip_source_prefix(raw_source)
+        url = _extract_url_from_source(stripped)
+
+        # URL match: same source already exists
+        if url and url in seen_url:
+            existing_idx = seen_url[url]
+            # Upgrade to URL-bearing version if existing entry lacks URL
+            if url not in global_sources[existing_idx - 1]:
+                global_sources[existing_idx - 1] = stripped
+            return existing_idx
+
+        # Exact text match
+        if stripped in seen_text:
+            return seen_text[stripped]
+
+        # New source
+        global_sources.append(stripped)
+        idx = len(global_sources)
+        seen_text[stripped] = idx
+        if url:
+            seen_url[url] = idx
+        return idx
 
     # Collect per-output local-to-global mappings
     output_maps: List[Dict[int, int]] = []
     for output in all_outputs:
         index_map: Dict[int, int] = {}
         for local_idx, raw_source in enumerate(output.sources, 1):
-            stripped = _strip_source_prefix(raw_source)
-            if stripped not in seen:
-                global_sources.append(stripped)
-                seen[stripped] = len(global_sources)
-            index_map[local_idx] = seen[stripped]
+            index_map[local_idx] = _add_source(raw_source)
         output_maps.append(index_map)
 
     # Synthesis sources
     synthesis_map: Dict[int, int] = {}
-    for local_idx, raw_source in enumerate(
-        synthesis_result.get("sources", []), 1
-    ):
-        stripped = _strip_source_prefix(raw_source)
-        if stripped not in seen:
-            global_sources.append(stripped)
-            seen[stripped] = len(global_sources)
-        synthesis_map[local_idx] = seen[stripped]
+    for local_idx, raw_source in enumerate(synthesis_result.get("sources", []), 1):
+        synthesis_map[local_idx] = _add_source(raw_source)
 
     # 2. Remap inline citations in module outputs
     remapped_outputs = []

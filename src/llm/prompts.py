@@ -139,10 +139,10 @@ Return your response as a JSON object with exactly these fields:
     "risks": ["risk 1 [4]", ...]
   },
   "flags": ["red: critical issue description [1]", "yellow: caution description [2]", "green: positive signal description"],
-  "sources": ["1. Source for finding 1", "2. Source for finding 2", ...]
+  "sources": ["1. Title — https://url", "2. Title — https://url", ...]
 }
 
-IMPORTANT: Use numbered inline citations like [1], [2], etc. within your analysis text, findings, opportunities, risks, and flags to reference specific sources. Each citation number must correspond to the matching numbered entry in the "sources" array. Every claim backed by data should have a citation. When grounded research context is provided above, cite those real sources by their [N] numbers and include their titles and URLs in the sources array — do not fabricate sources.
+IMPORTANT: Use numbered inline citations like [1], [2], etc. within your analysis text, findings, opportunities, risks, and flags to reference specific sources. Each citation number must correspond to the matching numbered entry in the "sources" array. Every claim backed by data should have a citation. When grounded research context is provided above, copy the source entries exactly as "Title — URL" (including the full URL) — do not paraphrase, truncate the URL, or replace it with a publication name.
 """
 
 

@@ -2,6 +2,23 @@ from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field
 
 
+class SearchResult(BaseModel):
+    title: str
+    url: str
+    content: str
+
+
+class SearchContext(BaseModel):
+    queries: List[str]
+    results: List[SearchResult]
+
+    def format_for_prompt(self) -> str:
+        lines = ["Grounded Research Context (cite these real sources using [N] notation):"]
+        for i, r in enumerate(self.results, 1):
+            lines.append(f"[{i}] {r.title} — {r.url}\n    {r.content}")
+        return "\n".join(lines)
+
+
 class AdHocModule(BaseModel):
     name: str
     system_prompt: str
@@ -42,3 +59,4 @@ class FinalAnalysis(BaseModel):
     deactivated_disclaimer: str = ""
     raci_matrix: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
     selection_metadata: Optional[SelectionMetadata] = None
+    search_context: Optional[SearchContext] = None
