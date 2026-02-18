@@ -1,0 +1,56 @@
+#!/bin/bash
+# Pre-commit hook: hallucination audit Layers 1 & 2
+#
+# Layer 1 (prompt linter) runs when prompts/mediator/schema files are staged.
+# Layer 2 (output integrity tests) runs when any src/ file is staged.
+#
+# To activate: git config core.hooksPath .githooks
+
+set -e
+
+STAGED=$(git diff --cached --name-only)
+
+PROMPT_FILES="src/llm/prompts.py\|src/mediator.py\|src/models/schemas.py"
+SRC_FILES="^src/"
+
+RUN_LAYER1=0
+RUN_LAYER2=0
+
+if echo "$STAGED" | grep -q "$PROMPT_FILES"; then
+    RUN_LAYER1=1
+fi
+
+if echo "$STAGED" | grep -qE "$SRC_FILES"; then
+    RUN_LAYER2=1
+fi
+
+if [ "$RUN_LAYER1" -eq 0 ] && [ "$RUN_LAYER2" -eq 0 ]; then
+    exit 0
+fi
+
+# Detect environment runner (conda preferred, fallback to plain python)
+if command -v conda &>/dev/null && conda env list | grep -q "mediated-reasoning"; then
+    PYTHON="conda run -n mediated-reasoning python"
+else
+    PYTHON="python"
+fi
+
+EXIT=0
+
+if [ "$RUN_LAYER1" -eq 1 ]; then
+    echo "[audit] Layer 1: prompt linter..."
+    if ! $PYTHON -m src.audit.prompt_linter; then
+        echo "[audit] Layer 1 FAILED — commit blocked."
+        EXIT=1
+    fi
+fi
+
+if [ "$RUN_LAYER2" -eq 1 ]; then
+    echo "[audit] Layer 2: output integrity tests..."
+    if ! $PYTHON -m pytest tests/test_audit.py -q --tb=short 2>&1; then
+        echo "[audit] Layer 2 FAILED — commit blocked."
+        EXIT=1
+    fi
+fi
+
+exit $EXIT
