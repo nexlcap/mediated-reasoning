@@ -15,6 +15,9 @@ import argparse
 import json
 import sys
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from src.models.schemas import FinalAnalysis
 
 

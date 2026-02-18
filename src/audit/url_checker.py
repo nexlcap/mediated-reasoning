@@ -17,6 +17,25 @@ from src.models.schemas import FinalAnalysis
 _URL_RE = re.compile(r'https://\S+')
 
 
+def _clean_url(url: str) -> str:
+    """Strip trailing punctuation while preserving balanced parentheses in URLs.
+
+    Wikipedia-style URLs like https://en.wikipedia.org/wiki/Blink_(browser_engine)
+    have a closing ) that is part of the URL, not trailing punctuation.
+    """
+    while url:
+        if url[-1] in '.,':
+            url = url[:-1]
+        elif url[-1] == ')':
+            # Keep ) if it closes a ( that is part of the URL
+            if url.count('(') >= url.count(')'):
+                break
+            url = url[:-1]
+        else:
+            break
+    return url
+
+
 def _extract_urls(analysis: FinalAnalysis) -> List[str]:
     """Return deduplicated list of URLs from all source fields."""
     urls = []
@@ -25,7 +44,7 @@ def _extract_urls(analysis: FinalAnalysis) -> List[str]:
     def _add(source: str) -> None:
         m = _URL_RE.search(source)
         if m:
-            url = m.group().rstrip(".,)")
+            url = _clean_url(m.group())
             if url not in seen:
                 seen.add(url)
                 urls.append(url)
@@ -40,10 +59,14 @@ def _extract_urls(analysis: FinalAnalysis) -> List[str]:
 
 
 def _check_url(url: str, timeout: int) -> Dict:
+    headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
     try:
-        r = httpx.head(url, follow_redirects=True, timeout=timeout,
-                       headers={"User-Agent": "Mozilla/5.0 (audit/1.0)"})
-        ok = r.status_code < 400
+        r = httpx.head(url, follow_redirects=True, timeout=timeout, headers=headers)
+        # 405 = HEAD not allowed; fall back to GET with range to avoid downloading body
+        if r.status_code == 405:
+            r = httpx.get(url, follow_redirects=True, timeout=timeout,
+                          headers={**headers, "Range": "bytes=0-0"})
+        ok = r.status_code < 400 or r.status_code == 416  # 416 = range not satisfiable but URL exists
         return {"url": url, "status": r.status_code, "error": None, "ok": ok}
     except httpx.TimeoutException:
         return {"url": url, "status": None, "error": "timeout", "ok": False}

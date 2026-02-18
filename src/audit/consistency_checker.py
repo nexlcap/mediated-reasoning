@@ -61,7 +61,7 @@ def check_consistency(
     Returns list of {module, issues, ok} dicts for every module with R1+R2 outputs.
     """
     if client is None:
-        client = ClaudeClient()
+        client = ClaudeClient(model="claude-haiku-4-5-20251001")
 
     # Group by module name
     by_module: Dict[str, Dict[int, ModuleOutput]] = {}

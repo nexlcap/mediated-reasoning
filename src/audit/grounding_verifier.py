@@ -86,7 +86,7 @@ def verify_grounding(
     Returns list of {sentence, citation, url, verdict} dicts for each sampled claim.
     """
     if client is None:
-        client = ClaudeClient()
+        client = ClaudeClient(model="claude-haiku-4-5-20251001")
 
     pairs = _collect_cited_sentences(analysis)
     if not pairs:
@@ -106,7 +106,8 @@ def verify_grounding(
         m = _URL_RE.search(source)
         if not m:
             continue
-        url = m.group().rstrip(".,)")
+        from src.audit.url_checker import _clean_url
+        url = _clean_url(m.group())
         triples.append((item["sentence"], idx, url))
 
     if not triples:
