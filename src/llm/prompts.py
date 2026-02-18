@@ -195,7 +195,13 @@ def build_round2_prompt(
     system = MODULE_SYSTEM_PROMPTS[module_name] + (
         "\n\nYou are now in Round 2. You have seen the other modules' Round 1 analyses. "
         "Revise your analysis considering their perspectives. Note any agreements, "
-        "disagreements, or new insights from cross-module review."
+        "disagreements, or new insights from cross-module review. "
+        "IMPORTANT: Do not introduce new specific statistics, percentages, version numbers, "
+        "dates, or named metrics that are not present in your Round 1 analysis or in the "
+        "Grounded Research Context provided below. Any new concrete figure you include MUST "
+        "have an inline [N] citation from that context. Do not invent numbers from training "
+        "memory. Do not soften or retract critical findings from your Round 1 analysis — "
+        "if you disagree with other modules, state the disagreement explicitly."
     )
     other_outputs = [o for o in round1_outputs if o["module_name"] != module_name]
     search_section = ""
