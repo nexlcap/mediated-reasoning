@@ -1,4 +1,5 @@
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Optional
 
@@ -440,17 +441,18 @@ class Mediator:
         module_order = {m.name: i for i, m in enumerate(self.modules)}
         round1_outputs.sort(key=lambda o: module_order[o.module_name])
 
-        # Round 2: Informed revision (parallel)
+        # Round 2: Informed revision (parallel, staggered to avoid token rate limits)
         logger.info("Starting Round 2: Informed Revision")
         round1_dicts = [o.model_dump() for o in round1_outputs]
         round1_names = {o.module_name for o in round1_outputs}
         eligible_modules = [m for m in self.modules if m.name in round1_names]
         round2_outputs: List[ModuleOutput] = []
         with ThreadPoolExecutor(max_workers=len(eligible_modules) or 1) as executor:
-            future_to_module = {
-                executor.submit(self._run_round2, module, problem, round1_dicts, searcher): module
-                for module in eligible_modules
-            }
+            future_to_module = {}
+            for i, module in enumerate(eligible_modules):
+                if i > 0:
+                    time.sleep(2)  # stagger submissions to stay within token/min limits
+                future_to_module[executor.submit(self._run_round2, module, problem, round1_dicts, searcher)] = module
             for future in as_completed(future_to_module):
                 module = future_to_module[future]
                 try:

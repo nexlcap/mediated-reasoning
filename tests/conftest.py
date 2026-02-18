@@ -39,7 +39,8 @@ def disable_search_prepass():
     """Prevent Tavily search from firing in unit tests."""
     with patch("src.search.searcher.SearchPrePass.run", return_value=None), \
          patch("src.search.searcher.SearchPrePass.run_for_module", return_value=None), \
-         patch("src.search.searcher.SearchPrePass.run_for_conflict", return_value=None):
+         patch("src.search.searcher.SearchPrePass.run_for_conflict", return_value=None), \
+         patch("src.mediator.time.sleep"):  # skip Round 2 stagger delay in tests
         yield
 
 
