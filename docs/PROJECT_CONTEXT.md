@@ -188,11 +188,20 @@ mediated-reasoning/
 │   │   ├── __init__.py
 │   │   ├── schemas.py          # Pydantic models for outputs
 │   │   └── types.py            # Type definitions
+│   ├── audit/
+│   │   ├── __init__.py
+│   │   ├── __main__.py         # CLI: python -m src.audit <report.json> --layer N
+│   │   ├── prompt_linter.py    # Layer 1 — static prompt constraint checker
+│   │   ├── output_validator.py # Layer 2 — citation integrity validator
+│   │   ├── url_checker.py      # Layer 3 — URL reachability (parallel HEAD/GET)
+│   │   ├── grounding_verifier.py # Layer 4 — LLM fact-checks cited claims (Haiku)
+│   │   └── consistency_checker.py # Layer 5 — R1→R2 new-fact detection (Haiku)
 │   └── utils/
 │       ├── __init__.py
 │       ├── logger.py           # Logging
 │       ├── formatters.py       # Output formatting
-│       └── exporters.py        # Markdown/JSON/HTML export
+│       ├── exporters.py        # Markdown/JSON/HTML export
+│       └── html_formatter.py   # Semantic HTML generator
 ├── tests/
 │   ├── __init__.py
 │   ├── conftest.py            # Shared fixtures and sample data
@@ -202,7 +211,8 @@ mediated-reasoning/
 │   ├── test_schemas.py
 │   ├── test_cli.py            # CLI argument tests
 │   ├── test_module_selection.py # Prompt builders, dynamic module factory
-│   └── test_exporters.py      # Export format tests
+│   ├── test_exporters.py      # Export format tests
+│   └── test_audit.py          # Audit layers 1 & 2 tests
 ├── docs/
 ├── .env.example
 └── requirements.txt
@@ -219,6 +229,7 @@ mediated-reasoning/
   - `python-dotenv` — Environment variable management
   - `pytest` — Testing
   - `tavily-python` — Web search API client for grounded source pre-pass
+  - `httpx` — HTTP client for URL reachability checks and source page fetching (audit layers 3 & 4)
 
 ## Use Cases
 
