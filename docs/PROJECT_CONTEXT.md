@@ -136,6 +136,7 @@ class FinalAnalysis(BaseModel):
     search_enabled: bool                # Whether Tavily web search was active for this run
     conflict_resolutions: List[ConflictResolution] # Populated when --deep-research is used
     deep_research_enabled: bool         # Whether the deep research round ran
+    search_context: Optional[SearchContext] # Raw search results from the pre-pass (queries + results)
 
 class SearchResult(BaseModel):
     title: str                  # Page title
