@@ -57,6 +57,23 @@ class ConflictResolution(BaseModel):
     sources: List[str] = Field(default_factory=list)  # local sources, consolidated later
 
 
+class UrlCheckResult(BaseModel):
+    url: str
+    status: Optional[int] = None
+    error: Optional[str] = None
+    ok: bool
+
+
+class AuditSummary(BaseModel):
+    layer1_passed: bool = True
+    layer1_violations: List[str] = Field(default_factory=list)
+    layer2_passed: bool = True
+    layer2_violations: List[str] = Field(default_factory=list)
+    layer3_total: int = 0
+    layer3_ok: int = 0
+    layer3_failures: List[UrlCheckResult] = Field(default_factory=list)
+
+
 class FinalAnalysis(BaseModel):
     problem: str
     module_outputs: List[ModuleOutput] = Field(default_factory=list)
@@ -73,3 +90,4 @@ class FinalAnalysis(BaseModel):
     search_enabled: bool = True
     conflict_resolutions: List[ConflictResolution] = Field(default_factory=list)
     deep_research_enabled: bool = False
+    audit: Optional[AuditSummary] = None

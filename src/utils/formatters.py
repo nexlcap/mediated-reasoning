@@ -178,6 +178,39 @@ def format_round_summary(module_outputs: list[ModuleOutput], round_num: int) -> 
     return "\n".join(lines)
 
 
+def _format_audit(analysis: FinalAnalysis) -> list[str]:
+    audit = analysis.audit
+    if not audit:
+        return []
+
+    lines = [
+        f"{BOLD}{'─'*60}",
+        f"  Source & Integrity Audit",
+        f"{'─'*60}{RESET}\n",
+    ]
+
+    def _status(passed: bool) -> str:
+        return f"{GREEN}✓ PASS{RESET}" if passed else f"{RED}✗ FAIL{RESET}"
+
+    lines.append(f"  Prompt constraints:  {_status(audit.layer1_passed)}")
+    lines.append(f"  Citation integrity:  {_status(audit.layer2_passed)}")
+
+    if audit.layer3_total:
+        pct = int(100 * audit.layer3_ok / audit.layer3_total)
+        warn = f"  {YELLOW}⚠ {len(audit.layer3_failures)} issue(s) below{RESET}" if audit.layer3_failures else ""
+        lines.append(f"  URL reachability:    {audit.layer3_ok}/{audit.layer3_total} ({pct}%){warn}")
+
+    for v in audit.layer1_violations + audit.layer2_violations:
+        lines.append(f"    {RED}✗ {v}{RESET}")
+
+    for f in audit.layer3_failures:
+        status = f.status or "ERR"
+        lines.append(f"    {YELLOW}[{status}] {f.url}{RESET}")
+
+    lines.append("")
+    return lines
+
+
 def format_final_analysis(analysis: FinalAnalysis) -> str:
     lines = [
         f"\n{BOLD}{'='*60}",
@@ -221,6 +254,8 @@ def format_final_analysis(analysis: FinalAnalysis) -> str:
         for i, source in enumerate(analysis.sources, 1):
             lines.append(f"  [{i}] {source}")
         lines.append("")
+
+    lines.extend(_format_audit(analysis))
 
     return "\n".join(lines)
 
@@ -337,6 +372,8 @@ def format_detailed_report(analysis: FinalAnalysis) -> str:
         for i, source in enumerate(analysis.sources, 1):
             lines.append(f"  [{i}] {source}")
         lines.append("")
+
+    lines.extend(_format_audit(analysis))
 
     return "\n".join(lines)
 

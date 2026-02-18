@@ -112,6 +112,9 @@ def main():
         print(format_final_analysis(result))
 
     if args.output:
+        from src.audit.runner import run_fast_audit
+        print("Running source integrity audit (layers 1–3)...")
+        result.audit = run_fast_audit(result)
         out_dir = export_all(result, report_style)
         print(f"\nReports exported to {out_dir}")
 

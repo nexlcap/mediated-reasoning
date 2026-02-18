@@ -130,6 +130,22 @@ ol.recs li { margin-bottom: .5rem; }
 ol.sources { font-size: .83rem; color: #444; padding-left: 1.5rem; }
 ol.sources li { margin-bottom: .3rem; word-break: break-word; }
 
+/* ── Audit summary ──────────────────────────────────────── */
+.audit-box {
+  background: #f9f9f9; border: 1px solid #e0e0e0;
+  border-radius: 6px; padding: 1rem 1.25rem;
+  font-size: .88rem; margin: 1.5rem 0;
+}
+.audit-box h2 { border: none; margin: 0 0 .7rem; font-size: 1rem; color: #333; padding: 0; }
+table.audit-table { border-collapse: collapse; width: 100%; }
+table.audit-table td { padding: .2rem .5rem; vertical-align: middle; }
+table.audit-table td:first-child { font-weight: 600; color: #555; white-space: nowrap; width: 1%; padding-right: 1.2rem; }
+.audit-pass { color: #1e7c3a; font-weight: 700; }
+.audit-fail { color: #b52a2a; font-weight: 700; }
+.audit-warn { color: #c47d00; font-weight: 700; }
+.audit-failures { margin: .5rem 0 0; padding-left: 1.4rem; font-size: .85rem; color: #555; }
+.audit-failures li { margin-bottom: .2rem; }
+
 /* ── Disclaimer note ────────────────────────────────────── */
 .disclaimer {
   background: #fff8e6; border: 1px solid #f0c040;
@@ -330,6 +346,53 @@ def _section_module_detail(output: ModuleOutput) -> str:
     return "".join(parts)
 
 
+def _section_audit(analysis: FinalAnalysis) -> str:
+    audit = analysis.audit
+    if not audit:
+        return ""
+
+    def _badge(passed: bool) -> str:
+        return "<span class='audit-pass'>&#10003; PASS</span>" if passed \
+               else "<span class='audit-fail'>&#10007; FAIL</span>"
+
+    rows = [
+        ("Prompt constraints", _badge(audit.layer1_passed)),
+        ("Citation integrity", _badge(audit.layer2_passed)),
+    ]
+
+    if audit.layer3_total:
+        pct = int(100 * audit.layer3_ok / audit.layer3_total)
+        reachable = f"{audit.layer3_ok}/{audit.layer3_total} reachable ({pct}%)"
+        if audit.layer3_failures:
+            reachable += " <span class='audit-warn'>&#9888; issues below</span>"
+        rows.append(("URL reachability", reachable))
+
+    trs = "".join(f"<tr><td>{k}</td><td>{v}</td></tr>" for k, v in rows)
+    table = f"<table class='audit-table'>{trs}</table>"
+
+    violations_html = ""
+    all_violations = audit.layer1_violations + audit.layer2_violations
+    if all_violations:
+        items = "".join(f"<li>{_e(v)}</li>" for v in all_violations)
+        violations_html = f"<ul class='audit-failures'>{items}</ul>"
+
+    failures_html = ""
+    if audit.layer3_failures:
+        items = []
+        for f in audit.layer3_failures:
+            status = f.status or "ERR"
+            note = f.error or ""
+            items.append(f"<li><code>[{status}]</code> <a href='{_e(f.url)}'>{_e(f.url)}</a> {_e(note)}</li>")
+        failures_html = f"<ul class='audit-failures'>{''.join(items)}</ul>"
+
+    return (
+        f"<div class='audit-box'>"
+        f"<h2>Source &amp; Integrity Audit</h2>"
+        f"{table}{violations_html}{failures_html}"
+        f"</div>"
+    )
+
+
 def _section_sources(sources: List[str]) -> str:
     if not sources:
         return ""
@@ -388,6 +451,7 @@ def format_html_report(analysis: FinalAnalysis, report_style: str = "default") -
                 body_parts.append(_section_module_detail(o))
             body_parts.append("</section>")
 
+    body_parts.append(_section_audit(analysis))
     body_parts.append(_section_sources(analysis.sources))
 
     body = "\n".join(body_parts)

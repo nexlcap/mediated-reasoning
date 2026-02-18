@@ -19,9 +19,9 @@ def validate(analysis: FinalAnalysis) -> List[str]:
     """Return a list of violation strings. Empty list = clean."""
     violations: List[str] = []
 
-    # 1. Every source must contain an https:// URL
+    # 1. Every source must contain a URL (http or https)
     for i, source in enumerate(analysis.sources, 1):
-        if "https://" not in source:
+        if "http://" not in source and "https://" not in source:
             violations.append(f"Source [{i}] has no URL: {source!r}")
 
     # 2. Collect all [N] markers across all text
@@ -44,7 +44,7 @@ def validate(analysis: FinalAnalysis) -> List[str]:
     # 4. Deep research resolution sources must also have URLs
     for res in analysis.conflict_resolutions:
         for source in res.sources:
-            if "https://" not in source:
+            if "http://" not in source and "https://" not in source:
                 violations.append(
                     f"Resolution source for '{res.topic}' has no URL: {source!r}"
                 )
@@ -53,18 +53,18 @@ def validate(analysis: FinalAnalysis) -> List[str]:
 
 
 def _collect_all_text(analysis: FinalAnalysis) -> str:
-    parts = [analysis.synthesis, analysis.deactivated_disclaimer]
-    parts.extend(analysis.recommendations)
-    parts.extend(analysis.priority_flags)
+    parts = [str(analysis.synthesis), str(analysis.deactivated_disclaimer)]
+    parts.extend(str(r) for r in analysis.recommendations)
+    parts.extend(str(f) for f in analysis.priority_flags)
     for mo in analysis.module_outputs:
         if isinstance(mo.analysis, dict):
             parts.append(json.dumps(mo.analysis))
         else:
             parts.append(str(mo.analysis))
-        parts.extend(mo.flags)
+        parts.extend(str(f) for f in mo.flags)
     for res in analysis.conflict_resolutions:
-        parts.append(res.verdict)
-        parts.append(res.updated_recommendation)
+        parts.append(str(res.verdict))
+        parts.append(str(res.updated_recommendation))
     return " ".join(parts)
 
 
