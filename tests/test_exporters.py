@@ -114,9 +114,9 @@ class TestExportJson:
 class TestExportHtml:
     def test_contains_html_tags(self, sample_analysis):
         html = export_html(sample_analysis)
-        assert "<html>" in html
+        assert "<html" in html
         assert "</html>" in html
-        assert "<pre>" in html
+        assert "<body>" in html
 
     def test_no_ansi(self, sample_analysis):
         html = export_html(sample_analysis)
@@ -128,7 +128,7 @@ class TestExportHtml:
 
     def test_customer_style(self, sample_analysis):
         html = export_html(sample_analysis, "customer")
-        assert "ANALYSIS REPORT" in html
+        assert "Analysis Report" in html
 
     def test_auto_links_urls(self):
         analysis = FinalAnalysis(
@@ -158,7 +158,7 @@ class TestExportToFile:
         path = str(tmp_path / "report.html")
         export_to_file(sample_analysis, path, "customer")
         content = open(path).read()
-        assert "<html>" in content
+        assert "<html" in content
 
     def test_unsupported_extension(self, sample_analysis, tmp_path):
         path = str(tmp_path / "report.pdf")
@@ -218,7 +218,7 @@ class TestExportAll:
         data = json.loads(open(os.path.join(out_dir, "report.json")).read())
         assert data["problem"] == sample_analysis.problem
         html = open(os.path.join(out_dir, "report.html")).read()
-        assert "<html>" in html
+        assert "<html" in html
 
     def test_report_style_applied(self, sample_analysis, tmp_path):
         out_dir = export_all(sample_analysis, report_style="customer", base_dir=str(tmp_path))

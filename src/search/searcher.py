@@ -58,6 +58,31 @@ class SearchPrePass:
             logger.error("Module search for %s (round %d) failed: %s", module_name, round_num, e)
             return None
 
+    def run_for_conflict(
+        self,
+        problem: str,
+        topic: str,
+        description: str,
+    ) -> Optional[SearchContext]:
+        """Run targeted search to gather evidence for resolving a specific conflict or red flag."""
+        if not self.tavily:
+            return None
+        try:
+            queries = self._generate_conflict_queries(problem, topic, description)
+            if not queries:
+                logger.warning("No queries generated for conflict '%s'", topic)
+                return None
+            context = self._fetch_results(queries, cap=6)
+            if context:
+                logger.info(
+                    "Conflict search: '%s' — %d results from %d queries",
+                    topic, len(context.results), len(queries),
+                )
+            return context
+        except Exception as e:
+            logger.error("Conflict search for '%s' failed: %s", topic, e)
+            return None
+
     def run(self, problem: str) -> Optional[SearchContext]:
         """Legacy single pre-pass (topic-level queries, not module-specific)."""
         if not self.tavily:
@@ -118,6 +143,32 @@ class SearchPrePass:
             return []
         except Exception as e:
             logger.warning("Module query generation failed for %s: %s", module_name, e)
+            return []
+
+    def _generate_conflict_queries(
+        self, problem: str, topic: str, description: str
+    ) -> List[str]:
+        system = (
+            "You are a research assistant. Generate 3-4 focused web search queries "
+            "to find evidence that resolves a specific conflict or validates a critical "
+            "finding. Queries should seek concrete data, precedents, or expert consensus. "
+            "Return ONLY a JSON object with a 'queries' key containing an array of query strings."
+        )
+        user = (
+            f"Problem: {problem}\n"
+            f"Conflict/issue topic: {topic}\n"
+            f"Description: {description}\n"
+            "Generate queries to find evidence that would resolve this conflict or "
+            "validate/refute this critical finding."
+        )
+        try:
+            result = self.llm.analyze(system, user)
+            queries = result.get("queries", [])
+            if isinstance(queries, list):
+                return [q for q in queries if isinstance(q, str)][:4]
+            return []
+        except Exception as e:
+            logger.warning("Conflict query generation failed for '%s': %s", topic, e)
             return []
 
     def _generate_queries(self, problem: str) -> List[str]:

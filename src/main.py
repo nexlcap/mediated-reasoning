@@ -59,6 +59,8 @@ def main():
     parser.add_argument("--interactive", action="store_true", help="Enter interactive follow-up mode after analysis")
     parser.add_argument("--list-modules", action="store_true", help="List available modules and exit")
     parser.add_argument("--auto-select", action="store_true", help="Use adaptive module selection (LLM pre-pass to pick relevant modules)")
+    parser.add_argument("--no-search", action="store_true", help="Skip web search pre-pass (disables grounded source fetching via Tavily)")
+    parser.add_argument("--deep-research", action="store_true", help="After synthesis, run targeted web search on high/critical conflicts and red flags to produce evidence-based verdicts and updated recommendations")
     args = parser.parse_args()
 
     if args.list_modules:
@@ -82,7 +84,7 @@ def main():
     raci = DEFAULT_RACI_MATRIX if args.raci else None
 
     client = ClaudeClient(model=args.model)
-    mediator = Mediator(client, weights=weights, raci=raci, auto_select=args.auto_select)
+    mediator = Mediator(client, weights=weights, raci=raci, auto_select=args.auto_select, search=not args.no_search, deep_research=args.deep_research)
 
     print(f"\nAnalyzing: {problem}\n")
     if args.auto_select:

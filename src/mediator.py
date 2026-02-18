@@ -8,9 +8,10 @@ from src.llm.prompts import (
     build_followup_prompt,
     build_gap_check_prompt,
     build_module_selection_prompt,
+    build_resolution_prompt,
     build_synthesis_prompt,
 )
-from src.models.schemas import AdHocModule, Conflict, FinalAnalysis, ModuleOutput, SearchContext, SelectionMetadata
+from src.models.schemas import AdHocModule, Conflict, ConflictResolution, FinalAnalysis, ModuleOutput, SearchContext, SelectionMetadata
 from src.search import SearchPrePass
 from src.modules import MODULE_REGISTRY
 from src.modules.base_module import create_dynamic_module
@@ -33,24 +34,32 @@ def _extract_url_from_source(source: str) -> str:
     return m.group(0).rstrip(".,)\"'") if m else ""
 
 
-def _remap_citations(text: str, index_map: Dict[int, int]) -> str:
-    """Replace [N] citation markers with remapped global indices."""
+def _remap_citations(text: str, index_map: Dict[int, int], drop_on_miss: bool = False) -> str:
+    """Replace [N] citation markers with remapped global indices.
+
+    drop_on_miss=True: citations with no mapping are removed (used for module
+    outputs where a missing mapping means a skipped/invalid source).
+    drop_on_miss=False (default): unknown citations are kept as-is (used for
+    synthesis which already uses global indices directly).
+    """
     def _replace(m):
         old_idx = int(m.group(1))
-        new_idx = index_map.get(old_idx, old_idx)
+        new_idx = index_map.get(old_idx)
+        if new_idx is None:
+            return "" if drop_on_miss else f"[{old_idx}]"
         return f"[{new_idx}]"
     return re.sub(r"\[(\d+)\]", _replace, text)
 
 
-def _remap_analysis(analysis: Dict, index_map: Dict[int, int]) -> Dict:
+def _remap_analysis(analysis: Dict, index_map: Dict[int, int], drop_on_miss: bool = False) -> Dict:
     """Remap citation markers in all string values of an analysis dict."""
     remapped = {}
     for key, value in analysis.items():
         if isinstance(value, str):
-            remapped[key] = _remap_citations(value, index_map)
+            remapped[key] = _remap_citations(value, index_map, drop_on_miss)
         elif isinstance(value, list):
             remapped[key] = [
-                _remap_citations(v, index_map) if isinstance(v, str) else v
+                _remap_citations(v, index_map, drop_on_miss) if isinstance(v, str) else v
                 for v in value
             ]
         else:
@@ -71,12 +80,20 @@ def _consolidate_sources(
     seen_url: Dict[str, int] = {}    # URL -> 1-based global index
 
     def _add_source(raw_source: str) -> int:
-        """Add source to global list (deduplicating by URL then text). Returns 1-based index."""
+        """Add source to global list (deduplicating by URL then text). Returns 1-based index.
+
+        Returns 0 if the source has no URL — these are likely hallucinated
+        training-knowledge entries and are excluded from the global list.
+        """
         stripped = _strip_source_prefix(raw_source)
         url = _extract_url_from_source(stripped)
 
+        if not url:
+            logger.debug("Dropping source without URL (likely hallucinated): %.80s", stripped)
+            return 0  # sentinel: skip
+
         # URL match: same source already exists
-        if url and url in seen_url:
+        if url in seen_url:
             existing_idx = seen_url[url]
             # Upgrade to URL-bearing version if existing entry lacks URL
             if url not in global_sources[existing_idx - 1]:
@@ -91,16 +108,18 @@ def _consolidate_sources(
         global_sources.append(stripped)
         idx = len(global_sources)
         seen_text[stripped] = idx
-        if url:
-            seen_url[url] = idx
+        seen_url[url] = idx
         return idx
 
-    # Collect per-output local-to-global mappings
+    # Collect per-output local-to-global mappings (only URL-backed sources)
     output_maps: List[Dict[int, int]] = []
     for output in all_outputs:
         index_map: Dict[int, int] = {}
         for local_idx, raw_source in enumerate(output.sources, 1):
-            index_map[local_idx] = _add_source(raw_source)
+            global_idx = _add_source(raw_source)
+            if global_idx > 0:
+                index_map[local_idx] = global_idx
+            # local_idx absent from index_map → citation will be dropped
         output_maps.append(index_map)
 
     # Synthesis sources
@@ -109,14 +128,15 @@ def _consolidate_sources(
         synthesis_map[local_idx] = _add_source(raw_source)
 
     # 2. Remap inline citations in module outputs
+    # drop_on_miss=True: citations to URL-less (skipped) or out-of-range sources are removed
     remapped_outputs = []
     for output, index_map in zip(all_outputs, output_maps):
         remapped_outputs.append(
             ModuleOutput(
                 module_name=output.module_name,
                 round=output.round,
-                analysis=_remap_analysis(output.analysis, index_map),
-                flags=[_remap_citations(f, index_map) for f in output.flags],
+                analysis=_remap_analysis(output.analysis, index_map, drop_on_miss=True),
+                flags=[_remap_citations(f, index_map, drop_on_miss=True) for f in output.flags],
                 sources=[],  # cleared — all sources consolidated at the end
                 revised=output.revised,
             )
@@ -141,13 +161,67 @@ def _consolidate_sources(
     return global_sources, remapped_outputs, remapped_synthesis
 
 
+def _consolidate_resolution_sources(
+    global_sources: List[str],
+    resolutions: List[ConflictResolution],
+) -> tuple[List[str], List[ConflictResolution]]:
+    """Extend the global source list with resolution sources and remap inline citations."""
+    # Rebuild seen maps from the existing global list
+    global_sources = list(global_sources)
+    seen_text: Dict[int, int] = {}
+    seen_url: Dict[str, int] = {}
+    for idx, source in enumerate(global_sources, 1):
+        seen_text[source] = idx
+        url = _extract_url_from_source(source)
+        if url:
+            seen_url[url] = idx
+
+    def _add_source(raw_source: str) -> int:
+        stripped = _strip_source_prefix(raw_source)
+        url = _extract_url_from_source(stripped)
+        if not url:
+            logger.debug("Dropping resolution source without URL: %.80s", stripped)
+            return 0  # sentinel: skip
+        if url in seen_url:
+            existing_idx = seen_url[url]
+            if url not in global_sources[existing_idx - 1]:
+                global_sources[existing_idx - 1] = stripped
+            return existing_idx
+        if stripped in seen_text:
+            return seen_text[stripped]
+        global_sources.append(stripped)
+        idx = len(global_sources)
+        seen_text[stripped] = idx
+        seen_url[url] = idx
+        return idx
+
+    remapped = []
+    for res in resolutions:
+        index_map: Dict[int, int] = {}
+        for local_idx, raw_source in enumerate(res.sources, 1):
+            global_idx = _add_source(raw_source)
+            if global_idx > 0:
+                index_map[local_idx] = global_idx
+        remapped.append(ConflictResolution(
+            topic=res.topic,
+            modules=res.modules,
+            severity=res.severity,
+            verdict=_remap_citations(res.verdict, index_map, drop_on_miss=True),
+            updated_recommendation=_remap_citations(res.updated_recommendation, index_map, drop_on_miss=True),
+            sources=[],
+        ))
+
+    return global_sources, remapped
+
+
 class Mediator:
-    def __init__(self, client: ClaudeClient, weights: Optional[Dict[str, float]] = None, raci: Optional[Dict] = None, auto_select: bool = False, search: bool = True):
+    def __init__(self, client: ClaudeClient, weights: Optional[Dict[str, float]] = None, raci: Optional[Dict] = None, auto_select: bool = False, search: bool = True, deep_research: bool = False):
         self.client = client
         self.weights = weights or {}
         self.raci = raci
         self.auto_select = auto_select
         self.search = search
+        self.deep_research = deep_research
         self.selection_metadata: Optional[SelectionMetadata] = None
 
         if not auto_select:
@@ -239,6 +313,101 @@ class Mediator:
             logger.error("Auto-select failed (%s), falling back to defaults", e)
             self._init_default_modules()
 
+    def _run_deep_research(
+        self,
+        problem: str,
+        conflicts: List[Conflict],
+        priority_flags: List[str],
+        module_outputs: List[ModuleOutput],
+        searcher,
+    ) -> List[ConflictResolution]:
+        """Run targeted research for high/critical conflicts and red flags."""
+
+        def _get_position(module_name: str) -> str:
+            r2 = next((o for o in module_outputs if o.module_name == module_name and o.round == 2), None)
+            r1 = next((o for o in module_outputs if o.module_name == module_name and o.round == 1), None)
+            output = r2 or r1
+            if not output:
+                return ""
+            summary = output.analysis.get("summary", "")
+            flags_text = "; ".join(output.flags[:3])
+            return f"Summary: {summary}\nTop flags: {flags_text}"
+
+        # Collect items to research
+        items: List[Dict] = []
+        processed_topics: set = set()
+
+        for conflict in conflicts:
+            if conflict.severity in ("high", "critical"):
+                items.append({
+                    "topic": conflict.topic,
+                    "description": conflict.description,
+                    "modules": conflict.modules,
+                    "severity": conflict.severity,
+                })
+                processed_topics.add(conflict.topic.lower())
+
+        for flag in priority_flags:
+            if not flag.lower().startswith("red:"):
+                continue
+            flag_text = flag[len("red:"):].strip()
+            # Skip if a conflict already covers this flag
+            if any(t in flag_text.lower() for t in processed_topics):
+                continue
+            items.append({
+                "topic": flag_text[:80],
+                "description": flag_text,
+                "modules": [],
+                "severity": "red",
+            })
+
+        if not items:
+            logger.info("Deep research: no high/critical conflicts or red flags to research")
+            return []
+
+        logger.info("Deep research: researching %d items", len(items))
+
+        def resolve_item(item: Dict) -> Optional[ConflictResolution]:
+            topic = item["topic"]
+            description = item["description"]
+            modules = item["modules"]
+            severity = item["severity"]
+
+            search_context = None
+            if searcher:
+                search_context = searcher.run_for_conflict(problem, topic, description)
+
+            module_positions = {m: _get_position(m) for m in modules}
+            system, user = build_resolution_prompt(
+                problem, topic, description, modules, module_positions, search_context
+            )
+            try:
+                result = self.client.analyze(system, user)
+                return ConflictResolution(
+                    topic=topic,
+                    modules=modules,
+                    severity=severity,
+                    verdict=result.get("verdict", ""),
+                    updated_recommendation=result.get("updated_recommendation", ""),
+                    sources=result.get("sources", []),
+                )
+            except Exception as e:
+                logger.error("Resolution for '%s' failed: %s", topic, e)
+                return None
+
+        results: List[ConflictResolution] = []
+        with ThreadPoolExecutor(max_workers=min(len(items), 5)) as executor:
+            future_to_item = {executor.submit(resolve_item, item): item for item in items}
+            for future in as_completed(future_to_item):
+                result = future.result()
+                if result:
+                    results.append(result)
+
+        # Restore original order
+        topic_order = {item["topic"]: i for i, item in enumerate(items)}
+        results.sort(key=lambda r: topic_order.get(r.topic, 999))
+        return results
+
     def _run_round1(self, module, problem: str, searcher=None) -> ModuleOutput:
         return module.run_round1(problem, searcher)
 
@@ -298,12 +467,17 @@ class Mediator:
 
         synthesis_result = {}
         if all_outputs:
-            all_output_dicts = [o.model_dump() for o in all_outputs]
+            # Pre-consolidate module sources so synthesis can cite real [N] numbers
+            pre_global_sources, pre_remapped_outputs, _ = _consolidate_sources(
+                all_outputs, {}
+            )
+            all_output_dicts = [o.model_dump() for o in pre_remapped_outputs]
             system, user = build_synthesis_prompt(
                 problem, all_output_dicts,
                 weights=self.weights,
                 deactivated_modules=self.deactivated_modules,
                 raci=self.raci,
+                global_sources=pre_global_sources,
             )
             try:
                 synthesis_result = self.client.analyze(system, user)
@@ -312,22 +486,41 @@ class Mediator:
         else:
             logger.error("All modules failed — no data to synthesize")
 
-        # Consolidate sources and remap inline citations
+        # Final consolidation: remap all inline citations consistently
         global_sources, remapped_outputs, remapped_synthesis = (
             _consolidate_sources(all_outputs, synthesis_result)
         )
 
+        conflicts = [Conflict(**c) for c in remapped_synthesis["conflicts"]]
+        priority_flags = remapped_synthesis["priority_flags"]
+
+        # Optional deep research round: targeted search on high/critical conflicts + red flags
+        conflict_resolutions: List[ConflictResolution] = []
+        if self.deep_research:
+            logger.info("Starting Deep Research Round: Conflict & Flag Resolution")
+            conflict_resolutions = self._run_deep_research(
+                problem, conflicts, priority_flags, remapped_outputs, searcher
+            )
+            if conflict_resolutions:
+                global_sources, conflict_resolutions = _consolidate_resolution_sources(
+                    global_sources, conflict_resolutions
+                )
+
         return FinalAnalysis(
             problem=problem,
             module_outputs=remapped_outputs,
-            conflicts=[Conflict(**c) for c in remapped_synthesis["conflicts"]],
+            conflicts=conflicts,
             synthesis=remapped_synthesis["synthesis"],
             recommendations=remapped_synthesis["recommendations"],
-            priority_flags=remapped_synthesis["priority_flags"],
+            priority_flags=priority_flags,
             sources=global_sources,
             deactivated_disclaimer=synthesis_result.get("deactivated_disclaimer", ""),
             raci_matrix=self.raci or {},
             selection_metadata=self.selection_metadata,
+            weights=self.weights,
+            search_enabled=self.search,
+            conflict_resolutions=conflict_resolutions,
+            deep_research_enabled=self.deep_research,
         )
 
     def followup(self, analysis: FinalAnalysis, question: str) -> str:

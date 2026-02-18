@@ -113,17 +113,39 @@ class Conflict(BaseModel):
     description: str            # e.g. "Market sees high demand but cost flags high burn rate [1][2]"
     severity: Literal["critical", "high", "medium", "low"]
 
+class ConflictResolution(BaseModel):
+    topic: str                      # conflict topic or red flag text
+    modules: List[str]              # modules involved; empty list for standalone red flags
+    severity: str                   # "high"/"critical" for conflicts, "red" for standalone flags
+    verdict: str                    # evidence-based finding with inline [N] citations
+    updated_recommendation: str     # concrete action step derived from the verdict
+    sources: List[str]              # cleared after consolidation into FinalAnalysis.sources
+
 class FinalAnalysis(BaseModel):
     problem: str
     module_outputs: List[ModuleOutput]
-    conflicts: List[Conflict]   # Structured conflict objects
+    conflicts: List[Conflict]           # Structured conflict objects
     synthesis: str
     recommendations: List[str]
-    priority_flags: List[str]   # Red/yellow flags
-    sources: List[str]          # Consolidated citations with inline [N] markers
-    deactivated_disclaimer: str # Disclaimer when modules are deactivated via --weight
-    raci_matrix: Dict[str, Dict[str, Any]] # RACI matrix used for conflict resolution (populated when --raci is enabled)
+    priority_flags: List[str]           # Red/yellow/green flags
+    sources: List[str]                  # Consolidated, URL-deduplicated citations; sources without URLs are dropped
+    deactivated_disclaimer: str         # Disclaimer when modules are deactivated via --weight
+    raci_matrix: Dict[str, Dict[str, Any]] # RACI matrix used for synthesis conflict resolution
     selection_metadata: Optional[SelectionMetadata] # Populated when --auto-select is used
+    weights: Dict[str, float]           # Module weights as passed to the mediator (empty = all defaults)
+    search_enabled: bool                # Whether Tavily web search was active for this run
+    conflict_resolutions: List[ConflictResolution] # Populated when --deep-research is used
+    deep_research_enabled: bool         # Whether the deep research round ran
+
+class SearchResult(BaseModel):
+    title: str                  # Page title
+    url: str                    # Canonical URL (used for deduplication)
+    content: str                # Snippet/summary from Tavily
+
+class SearchContext(BaseModel):
+    queries: List[str]          # LLM-generated search queries
+    results: List[SearchResult] # Deduplicated results (capped at 12)
+    # format_for_prompt() serialises results as numbered [N] context block
 
 class AdHocModule(BaseModel):
     name: str                   # e.g. "cultural"
@@ -154,6 +176,9 @@ mediated-reasoning/
 │   │   ├── tech_module.py      # Technical feasibility (pool)
 │   │   ├── legal_module.py     # Legal/compliance (pool)
 │   │   └── scalability_module.py # Growth/scaling (pool)
+│   ├── search/
+│   │   ├── __init__.py
+│   │   └── searcher.py         # SearchPrePass — query gen + Tavily fetch
 │   ├── llm/
 │   │   ├── __init__.py
 │   │   ├── client.py           # LLM API wrapper (Claude)
@@ -192,6 +217,7 @@ mediated-reasoning/
   - `pydantic` — Data validation and schemas
   - `python-dotenv` — Environment variable management
   - `pytest` — Testing
+  - `tavily-python` — Web search API client for grounded source pre-pass
 
 ## Use Cases
 
@@ -214,6 +240,8 @@ mediated-reasoning/
 | `--list-modules` | List available modules and exit |
 | `--raci` | Use RACI matrix for conflict resolution in synthesis |
 | `--auto-select` | Adaptive module selection — LLM pre-pass picks relevant modules from a pool of 12 |
+| `--no-search` | Skip web search pre-pass; modules cite from training knowledge only (no Tavily call) |
+| `--deep-research` | After synthesis, run targeted web search on high/critical conflicts and red flags to produce evidence-based verdicts and updated recommendations |
 | `--model MODEL` | Claude model to use |
 
 ### Interactive Follow-up Mode (`--interactive`)
@@ -257,6 +285,43 @@ Chosen for faster iteration, full environment control, and better git integratio
 
 ### Why Conda over venv?
 Explicit user preference. No specific technical justification — purely a tooling choice.
+
+### Why per-module domain-specific search in both rounds?
+Without real sources, every module invents plausible-sounding citations from training data. These hallucinated sources are unacceptable for any analysis that will inform real decisions.
+
+**The approach:** Each module runs its own web search in both Round 1 and Round 2, rather than sharing a single global pre-pass. `SearchPrePass.run_for_module()` is called per module per round:
+
+- **Query generation:** The LLM generates 3–4 queries using the module's system prompt as a domain hint, so a legal module generates queries about regulatory frameworks while a market module generates queries about market size data. In Round 2, the module's own Round 1 key findings are also included so the search fetches supporting evidence and counter-arguments for what was already found.
+- **Fetching:** Tavily returns clean summaries and canonical URLs (designed for LLM grounding, not raw HTML). Results are capped at 8 per module per round and deduplicated by URL.
+- **Injection:** Results are formatted as a numbered `[N] Title — URL\n    content` block and injected into the module's prompt. Modules are explicitly instructed to cite from those entries and copy the full URL into the sources array.
+
+**Source consolidation:** Each module produces local source indices [1]–[N]. After all rounds complete, `_consolidate_sources()` merges all module sources into a global deduplicated list (by URL first, then text), remaps all inline citations to global indices, and clears per-module source lists. Before synthesis (Round 3), this global list is pre-built and injected into the synthesis prompt with a `CRITICAL` instruction to cite only from it — preventing synthesis from inventing new sources beyond what modules actually found.
+
+**Graceful degradation:** If `TAVILY_API_KEY` is missing, the package is not installed, or any Tavily call fails, that module's search is silently skipped and the module falls back to training-knowledge citations. `--no-search` disables all search explicitly.
+
+### Why a post-synthesis deep research round (`--deep-research`)?
+After synthesis, the framework has identified conflicts and red flags but no mechanism to actually *resolve* them with evidence. The deep research round (`--deep-research`) addresses this: for every `high`/`critical` severity conflict and every `red:` priority flag not already covered by a conflict, the mediator runs a targeted research task in parallel:
+
+1. **Query generation** — Claude generates 3–4 queries specifically aimed at resolving that conflict (e.g. "WebMCP API DevTrial stability guarantees" for an API-stability conflict)
+2. **Evidence fetch** — Tavily returns fresh, current results
+3. **Resolution LLM call** — receives the conflict description, both module positions, and fresh evidence; produces a `verdict` (which position evidence supports) and an `updated_recommendation` (more specific than the synthesis-level recommendations)
+
+Resolution sources are consolidated into the global source list using the same URL-deduplication logic as module sources. The mediator handles this itself (not delegating back to modules) because conflicts are cross-domain by definition — no single domain module "owns" a cross-module disagreement. `--deep-research` is opt-in because each conflict triggers ~5 additional API calls (1 query gen + 3–4 Tavily fetches + 1 resolution LLM call).
+
+### Hallucination mitigations
+Several layers prevent LLM-fabricated sources and unsupported claims from appearing in the output:
+
+- **URL-only source filter** — `_consolidate_sources()` drops any source entry without an `https://` URL. Tavily always returns URLs; sources without them are training-knowledge fabrications. Inline citations pointing to dropped sources are also removed (`drop_on_miss=True` in `_remap_citations`).
+- **Strict module prompt constraints** — `_module_json_instruction(has_search_context)` generates two distinct instructions: *with search context*: "sources MUST contain ONLY entries copied verbatim from the Grounded Research Context — do NOT add sources from training knowledge"; *without search context*: "sources array MUST BE EMPTY — do not fabricate source titles or URLs."
+- **Pre-consolidated source list for synthesis** — Before calling the synthesis LLM, all module sources are merged into a global list `[1]–[N]`. Synthesis receives this list with a `CRITICAL` instruction to cite only within range and return an empty sources array, preventing it from inventing new sources beyond what modules actually found.
+- **Follow-up constraint** — The `--interactive` follow-up system prompt explicitly says "answer strictly from the analysis provided — do not introduce new facts, statistics, or sources not present in the analysis."
+
+**Remaining structural limitations (unfixable by prompting):**
+
+- **Citation misattribution** — The LLM can cite a real, URL-backed source `[1]` in support of a claim that source `[1]` does not actually make. The URL is real; the attribution is wrong. Detecting this would require a separate LLM call per citation to verify relevance, which is impractical at scale.
+- **Query generation bias** — Search queries are generated by the LLM itself. A module could generate queries that skew toward confirming its initial priors rather than seeking disconfirming evidence. The Tavily results are real; the selection of what to search for is not independently audited.
+- **Conceptual errors** — A module can state something that is factually wrong about how a technology, regulation, or market works, regardless of whether it cites a source. This reflects training data limits and is not addressable through grounding constraints alone.
+- **Cross-module amplification** — If a Round 1 module makes an uncited claim, Round 2 modules see it as "context" and may treat it as established fact, amplifying the error. The system has no mechanism to flag claims that originate from a module's own output rather than an external source.
 
 ### Why a dedicated `deactivated_disclaimer` field?
 When modules are deactivated via `--weight module=0`, the synthesis must include a disclaimer noting their absence. Initially this was a free-text instruction in the prompt ("you MUST include a disclaimer..."), but the LLM consistently ignored it — especially when other modules partially covered the deactivated module's domain. Adding `deactivated_disclaimer` as a required field in the JSON schema forces the LLM to populate it, making the disclaimer reliable rather than discretionary.

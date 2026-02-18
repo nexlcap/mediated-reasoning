@@ -48,6 +48,15 @@ class Conflict(BaseModel):
     severity: Literal["critical", "high", "medium", "low"]
 
 
+class ConflictResolution(BaseModel):
+    topic: str                      # conflict topic or red flag text
+    modules: List[str]              # modules involved; empty for standalone red flags
+    severity: str                   # "high"/"critical" for conflicts, "red" for flags
+    verdict: str                    # evidence-based finding
+    updated_recommendation: str     # concrete action given the verdict
+    sources: List[str] = Field(default_factory=list)  # local sources, consolidated later
+
+
 class FinalAnalysis(BaseModel):
     problem: str
     module_outputs: List[ModuleOutput] = Field(default_factory=list)
@@ -60,3 +69,7 @@ class FinalAnalysis(BaseModel):
     raci_matrix: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
     selection_metadata: Optional[SelectionMetadata] = None
     search_context: Optional[SearchContext] = None
+    weights: Dict[str, float] = Field(default_factory=dict)
+    search_enabled: bool = True
+    conflict_resolutions: List[ConflictResolution] = Field(default_factory=list)
+    deep_research_enabled: bool = False

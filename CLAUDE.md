@@ -30,3 +30,4 @@ CLI tool using multi-agent mediated reasoning to analyze complex problems from m
 | 14 | Adaptive module selection — pre-pass to activate only relevant modules | Done |
 | 15 | Runtime re-delegation on failure — retry/redistribute failed modules | Open |
 | 16 | Per-module trust scores — dynamic reliability tracking across runs | Open |
+| 17 | Web search pre-pass (Tavily) — grounded real citations, `--no-search` flag | Done |

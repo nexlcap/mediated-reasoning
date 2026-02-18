@@ -9,6 +9,7 @@ from src.utils.formatters import (
     format_detailed_report,
     format_final_analysis,
 )
+from src.utils.html_formatter import format_html_report
 
 ANSI_RE = re.compile(r"\033\[[0-9;]*m")
 URL_RE = re.compile(r"(https?://[^\s<>&]+)")
@@ -39,21 +40,7 @@ def export_json(analysis: FinalAnalysis) -> str:
 
 
 def export_html(analysis: FinalAnalysis, report_style: str = "default") -> str:
-    formatter = FORMATTERS[report_style]
-    content = strip_ansi(formatter(analysis))
-    # Escape HTML entities in the content
-    content = content.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-    # Auto-link URLs
-    content = URL_RE.sub(r'<a href="\1">\1</a>', content)
-    return (
-        "<!DOCTYPE html>\n"
-        "<html>\n"
-        "<head><meta charset=\"utf-8\"><title>Analysis Report</title></head>\n"
-        "<body>\n"
-        f"<pre>{content}</pre>\n"
-        "</body>\n"
-        "</html>\n"
-    )
+    return format_html_report(analysis, report_style)
 
 
 EXPORTERS = {
