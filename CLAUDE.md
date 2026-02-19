@@ -31,4 +31,4 @@ CLI tool using multi-agent mediated reasoning to analyze complex problems from m
 | 15 | Runtime re-delegation on failure — retry/redistribute failed modules | Open |
 | 16 | Per-module trust scores — dynamic reliability tracking across runs | Open |
 | 17 | Web search pre-pass (Tavily) — grounded real citations, `--no-search` flag | Done |
-| 18 | Programmatic Tool Calling (PTC) — parallel R1/R2 via code execution, eliminates stagger | Done |
+| 18 | Programmatic Tool Calling (PTC) — parallel R1/R2 via direct tool calling, eliminates stagger | Done |

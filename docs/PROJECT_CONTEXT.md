@@ -433,8 +433,21 @@ Previously, modules ran via `ThreadPoolExecutor` with a 5-second stagger between
 4. Module outputs never enter the orchestrating Claude's message context, so they contribute zero tokens to the rate-limit counter.
 5. If the orchestrator misses any modules, the loop continues until it returns `end_turn`.
 
-**Concrete effects:**
-- Stagger eliminated → Round 2 is ~30s faster per run
+**Measured results** (n=10 runs each, `--auto-select`, Tavily search enabled, ~7–8 modules per run):
+
+| Metric | pre-PTC (main) | PTC (feature/ptc) | Δ |
+|--------|---------------|-------------------|---|
+| round2_s | 98.9s ± 10.3s | 80.8s ± 15.4s | **−18%** |
+| round1_s | 40.5s ± 8.0s | 48.2s ± 6.8s | +19% |
+| total_s | 165.1s ± 15.5s | 151.7s ± 20.4s | **−8%** |
+| ptc_orch_input_tok | 0 | 3,414 ± 457 | new |
+| total_input_tok | 93,746 ± 10,222 | 85,247 ± 14,093 | −9% |
+| source_survival_pct | 76% ± 3% | 81% ± 3% | +6% |
+| L3 URL ok | 91% ± 2% | 91% ± 3% | = |
+
+Round 2 savings are real but bounded by Tavily network I/O (~5–10s/module): with search active, network latency dominates over the eliminated 5s stagger. Without search the stagger was the bottleneck and Round 2 drops ~51%. Round 1 is slightly slower (+19%) due to the orchestrator round-trip overhead (~7s). Quality metrics (source survival, URL reachability, conflicts) are unchanged.
+
+**Other effects:**
 - Module outputs (R1, R2) stay off the orchestrating context → lower rate-limit exposure regardless of module count
 - Synthesis (Round 3) is a single direct `client.analyze()` call, unchanged
 - Deep research uses its own `ThreadPoolExecutor`, unchanged
