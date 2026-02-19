@@ -244,7 +244,8 @@ mediated-reasoning/
 │   ├── test_cli.py            # CLI argument tests
 │   ├── test_module_selection.py # Prompt builders, dynamic module factory
 │   ├── test_exporters.py      # Export format tests
-│   └── test_audit.py          # Audit layers 1 & 2 tests
+│   ├── test_audit.py          # Audit layers 1 & 2 tests
+│   └── test_ptc.py            # run_ptc_round() unit tests
 ├── docs/
 ├── .env.example
 └── requirements.txt
@@ -255,6 +256,7 @@ mediated-reasoning/
 - **Language:** Python 3.11+
 - **Environment:** Conda
 - **LLM:** Claude (Anthropic API)
+- **Dependencies:** `anthropic>=0.72.0` (PTC requires SDK ≥ 0.72 for `code_execution_20250825` tool type and `container` response field)
 - **Libraries:**
   - `anthropic` — API client
   - `pydantic` — Data validation and schemas
@@ -381,8 +383,23 @@ When modules are deactivated via `--weight module=0`, the synthesis must include
 ### Why structured Conflict objects instead of free-text?
 Conflicts were originally extracted as free-text strings in the synthesis prompt. This made them inconsistent — sometimes a paragraph, sometimes a bullet point, with no reliable way to identify which modules disagreed or how severe the conflict was. Switching to structured `Conflict` objects (`modules`, `topic`, `description`, `severity`) forces the LLM to produce machine-readable, consistent conflict data that can be filtered, sorted, and rendered uniformly across export formats.
 
+### Why Programmatic Tool Calling (PTC) for Round 1 and Round 2?
+
+Previously, modules ran via `ThreadPoolExecutor` with a 5-second stagger between Round 2 submissions to stay under the 30k input tokens/minute rate limit. This added ~30 seconds of dead time per run (7 modules × 5s) and still caused 429 errors under load because each module's full output accumulated in the orchestrating Claude's message context.
+
+**PTC eliminates both problems.** `ClaudeClient.run_ptc_round()` sends a single `messages.create()` with a `code_execution_20250825` tool and an `analyze_module` tool. The orchestrating Claude writes `await asyncio.gather(analyze_module("market"), analyze_module("tech"), ...)` in a code block. The API returns `tool_use` blocks for every module at once. Our server handles them in parallel via `ThreadPoolExecutor` — exactly as before — but now captures the `ModuleOutput` objects server-side and returns only a slim `"ok"` acknowledgement to the container. Module outputs never enter the orchestrating Claude's message context, so they contribute zero tokens to the rate-limit counter.
+
+**Concrete effects:**
+- Stagger eliminated → Round 2 is ~30s faster per run
+- Module outputs (R1, R2) stay off the orchestrating context → lower rate-limit exposure regardless of module count
+- Synthesis (Round 3) is a single direct `client.analyze()` call, unchanged
+- Deep research uses its own `ThreadPoolExecutor`, unchanged
+- Individual module failures are caught per-tool and logged; the round continues with the successful subset
+
+The orchestrator's `max_tokens=512` keeps its own cost negligible — it only needs ~10 lines of Python, not a full analysis response.
+
 ### Resolved questions
-- **Sequential vs parallel execution within a round:** Modules run in parallel within each round using `ThreadPoolExecutor`. Since modules are independent within a round, this cuts wall-clock time from sequential API calls to parallel batches (R1 parallel + R2 parallel + synthesis).
+- **Sequential vs parallel execution within a round:** Modules run in parallel within each round. R1 and R2 use PTC (`run_ptc_round()`); deep research uses `ThreadPoolExecutor` directly. Both approaches dispatch all work simultaneously and collect results as they complete.
 
 ## Design Principles
 

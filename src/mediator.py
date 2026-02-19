@@ -1,5 +1,4 @@
 import re
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
@@ -410,12 +409,6 @@ class Mediator:
         results.sort(key=lambda r: topic_order.get(r.topic, 999))
         return results
 
-    def _run_round1(self, module, problem: str, searcher=None) -> ModuleOutput:
-        return module.run_round1(problem, searcher)
-
-    def _run_round2(self, module, problem: str, round1_dicts: list, searcher=None) -> ModuleOutput:
-        return module.run_round2(problem, round1_dicts, searcher)
-
     def analyze(self, problem: str) -> FinalAnalysis:
         if self.auto_select:
             self._select_modules(problem)
@@ -423,45 +416,31 @@ class Mediator:
         # Create searcher once; each module fetches its own domain-specific sources
         searcher = SearchPrePass(self.client) if self.search else None
 
-        # Round 1: Independent analysis (parallel, each module searches its own domain)
+        # Round 1: Independent analysis (all modules dispatched in parallel via PTC)
         logger.info("Starting Round 1: Independent Analysis")
         round1_outputs: List[ModuleOutput] = []
-        with ThreadPoolExecutor(max_workers=len(self.modules)) as executor:
-            future_to_module = {
-                executor.submit(self._run_round1, module, problem, searcher): module
-                for module in self.modules
-            }
-            for future in as_completed(future_to_module):
-                module = future_to_module[future]
-                try:
-                    output = future.result()
-                    round1_outputs.append(output)
-                except Exception as e:
-                    logger.error("Module %s failed in Round 1: %s", module.name, e)
-        # Preserve deterministic ordering by module registry order
+        try:
+            round1_outputs = self.client.run_ptc_round(
+                problem, self.modules, searcher=searcher
+            )
+        except Exception as e:
+            logger.error("Round 1 failed: %s", e)
         module_order = {m.name: i for i, m in enumerate(self.modules)}
         round1_outputs.sort(key=lambda o: module_order[o.module_name])
 
-        # Round 2: Informed revision (parallel, staggered to avoid token rate limits)
+        # Round 2: Informed revision (all eligible modules dispatched in parallel via PTC)
         logger.info("Starting Round 2: Informed Revision")
         round1_dicts = [o.model_dump() for o in round1_outputs]
         round1_names = {o.module_name for o in round1_outputs}
         eligible_modules = [m for m in self.modules if m.name in round1_names]
         round2_outputs: List[ModuleOutput] = []
-        with ThreadPoolExecutor(max_workers=len(eligible_modules) or 1) as executor:
-            future_to_module = {}
-            for i, module in enumerate(eligible_modules):
-                if i > 0:
-                    time.sleep(5)  # stagger submissions to stay within token/min limits
-                future_to_module[executor.submit(self._run_round2, module, problem, round1_dicts, searcher)] = module
-            for future in as_completed(future_to_module):
-                module = future_to_module[future]
-                try:
-                    output = future.result()
-                    round2_outputs.append(output)
-                except Exception as e:
-                    logger.error("Module %s failed in Round 2: %s", module.name, e)
-        # Preserve deterministic ordering by module registry order
+        if eligible_modules:
+            try:
+                round2_outputs = self.client.run_ptc_round(
+                    problem, eligible_modules, round1_outputs=round1_dicts, searcher=searcher
+                )
+            except Exception as e:
+                logger.error("Round 2 failed: %s", e)
         round2_outputs.sort(key=lambda o: module_order[o.module_name])
 
         # Round 3: Synthesis

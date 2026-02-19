@@ -34,13 +34,28 @@ SAMPLE_SYNTHESIS_RESPONSE = {
 }
 
 
+def _fake_ptc_round(problem, modules, round1_outputs=None, searcher=None):
+    """Fake run_ptc_round for tests: returns ModuleOutput for each module directly."""
+    round_num = 2 if round1_outputs is not None else 1
+    return [
+        ModuleOutput(
+            module_name=m.name,
+            round=round_num,
+            analysis=SAMPLE_LLM_RESPONSE["analysis"],
+            flags=SAMPLE_LLM_RESPONSE["flags"],
+            sources=SAMPLE_LLM_RESPONSE["sources"],
+            revised=(round_num == 2),
+        )
+        for m in modules
+    ]
+
+
 @pytest.fixture(autouse=True)
 def disable_search_prepass():
     """Prevent Tavily search from firing in unit tests."""
     with patch("src.search.searcher.SearchPrePass.run", return_value=None), \
          patch("src.search.searcher.SearchPrePass.run_for_module", return_value=None), \
-         patch("src.search.searcher.SearchPrePass.run_for_conflict", return_value=None), \
-         patch("src.mediator.time.sleep"):  # skip Round 2 stagger delay in tests
+         patch("src.search.searcher.SearchPrePass.run_for_conflict", return_value=None):
         yield
 
 

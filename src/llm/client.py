@@ -1,6 +1,7 @@
 import json
 import re
-from typing import Dict
+from concurrent.futures import ThreadPoolExecutor
+from typing import Dict, List, Optional
 
 import anthropic
 
@@ -48,6 +49,122 @@ class ClaudeClient:
         except anthropic.APIError as e:
             logger.error("API error: %s", e)
             raise
+
+    def run_ptc_round(
+        self,
+        problem: str,
+        modules: list,                          # List[BaseModule]
+        round1_outputs: Optional[list] = None,  # list[dict] — None for Round 1
+        searcher=None,
+    ) -> list:                                  # List[ModuleOutput]
+        """Run one analysis round using programmatic tool calling.
+
+        All module analyses are dispatched in parallel by an orchestrating
+        Claude code execution block. ModuleOutput objects are captured in the
+        tool handler and never enter the orchestrating context.
+        """
+        round_num = 2 if round1_outputs is not None else 1
+        module_map = {m.name: m for m in modules}
+        module_names = [m.name for m in modules]
+
+        analyze_tool = {
+            "name": "analyze_module",
+            "description": (
+                f"Run Round {round_num} analysis for one expert module. "
+                "Call every module in parallel using asyncio.gather()."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "module_name": {
+                        "type": "string",
+                        "enum": module_names,
+                        "description": "Which expert module to run",
+                    }
+                },
+                "required": ["module_name"],
+            },
+            "allowed_callers": ["code_execution_20250825"],
+        }
+        tools = [{"type": "code_execution_20250825", "name": "code_execution"}, analyze_tool]
+
+        system = (
+            "You orchestrate a parallel analysis pipeline. "
+            "Use code execution to call analyze_module() for EVERY module "
+            "in parallel using asyncio.gather(). After all calls complete, print 'done'."
+        )
+        module_args = ", ".join(f'analyze_module("{n}")' for n in module_names)
+        user = (
+            f"Run Round {round_num} — call all modules in parallel.\n\n"
+            f"Problem: {problem}\n\n"
+            f"Call: await asyncio.gather({module_args})"
+        )
+
+        messages = [{"role": "user", "content": user}]
+        captured: dict = {}   # module_name -> ModuleOutput
+        container_id = None
+
+        while True:
+            kwargs = dict(
+                model=self.model,
+                max_tokens=512,
+                system=system,
+                messages=messages,
+                tools=tools,
+            )
+            if container_id:
+                kwargs["container"] = container_id
+
+            response = self.client.messages.create(**kwargs)
+
+            if getattr(response, "container", None):
+                container_id = response.container.id
+
+            tool_uses = [b for b in response.content if b.type == "tool_use"]
+
+            if not tool_uses:
+                break   # end_turn — code finished, all results captured
+
+            # Execute all tool calls in parallel on our server
+            tool_results = []
+            with ThreadPoolExecutor(max_workers=len(tool_uses)) as executor:
+                futures = {}
+                for tu in tool_uses:
+                    name = tu.input.get("module_name")
+                    module = module_map.get(name)
+                    if not module:
+                        continue
+                    if round_num == 1:
+                        f = executor.submit(module.run_round1, problem, searcher)
+                    else:
+                        f = executor.submit(module.run_round2, problem, round1_outputs, searcher)
+                    futures[f] = (tu.id, name)
+
+                for f, (tu_id, name) in futures.items():
+                    try:
+                        output = f.result()
+                        captured[name] = output
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": tu_id,
+                            "content": "ok",
+                        })
+                    except Exception as e:
+                        logger.error("Module %s failed in Round %d: %s", name, round_num, e)
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": tu_id,
+                            "content": f"error: {e}",
+                            "is_error": True,
+                        })
+
+            messages = messages + [
+                {"role": "assistant", "content": response.content},
+                {"role": "user", "content": tool_results},
+            ]
+
+        module_order = {m.name: i for i, m in enumerate(modules)}
+        return sorted(captured.values(), key=lambda o: module_order.get(o.module_name, 999))
 
     @staticmethod
     def _extract_json(text: str) -> Dict:
