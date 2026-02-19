@@ -428,6 +428,16 @@ When modules are deactivated via `--weight module=0`, the synthesis must include
 ### Why structured Conflict objects instead of free-text?
 Conflicts were originally extracted as free-text strings in the synthesis prompt. This made them inconsistent — sometimes a paragraph, sometimes a bullet point, with no reliable way to identify which modules disagreed or how severe the conflict was. Switching to structured `Conflict` objects (`modules`, `topic`, `description`, `severity`) forces the LLM to produce machine-readable, consistent conflict data that can be filtered, sorted, and rendered uniformly across export formats.
 
+### Why distinguish bot-blocked URLs from real failures in Layer 3?
+
+Layer 3 issues parallel HEAD requests against every source URL. HTTP 403 (Forbidden), 401 (Unauthorized), and 429 (Too Many Requests) responses are systematically returned by bot-detection systems on sites like Medium, Wikipedia, and market research paywalls — the page exists and the URL is valid, but the server refuses automated access. Treating these the same as 404 (Not Found) or connection errors would cause every audit to exit non-zero even when all sources are real, creating constant noise and making CI integration impractical.
+
+**The distinction:**
+- **Bot-blocked (403/401/429):** `bot_blocked: True` in `UrlCheckResult`. Shown in a separate `BOT-BLOCKED` section. Do not affect exit code. These are informational — the source is plausible but unverifiable by crawler.
+- **Real failures (404, 410, timeout, connection error):** Shown in `FAILURES`. Exit code 1. These indicate a genuinely broken or non-existent URL that should be investigated.
+
+This is set in `_check_url()` in `url_checker.py` and stored in the `UrlCheckResult.bot_blocked` field so downstream tooling (e.g. CI, metrics) can distinguish the two categories programmatically.
+
 ### Why Programmatic Tool Calling (PTC) for Round 1 and Round 2?
 
 Previously, modules ran via `ThreadPoolExecutor` with a 5-second stagger between Round 2 submissions to stay under the 30k input tokens/minute rate limit. This added ~30 seconds of dead time per run and still caused 429 errors under load.
