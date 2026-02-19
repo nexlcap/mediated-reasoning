@@ -281,7 +281,7 @@ mediated-reasoning/
 - **Language:** Python 3.11+
 - **Environment:** Conda
 - **LLM:** Claude (Anthropic API)
-- **Dependencies:** `anthropic>=0.49.0`
+- **Dependencies:** `anthropic>=0.72.0`
 - **Libraries:**
   - `anthropic` — API client
   - `pydantic` — Data validation and schemas
