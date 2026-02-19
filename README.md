@@ -97,7 +97,7 @@ python -m src.audit report.json --layer 5     # R1→R2 consistency check
 
 ## Sample Reports
 
-Published reports are available on **[GitHub Pages](https://nexlcak.github.io/mediated-reasoning/)**.
+Published reports are available on **[GitHub Pages](https://nexlcap.github.io/mediated-reasoning/)**.
 
 ## Testing
 
