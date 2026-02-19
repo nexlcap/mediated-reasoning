@@ -170,6 +170,7 @@ class FinalAnalysis(BaseModel):
     search_context: Optional[SearchContext] # Raw search results from the pre-pass (queries + results)
     audit: Optional[AuditSummary]       # Layers 1–3 populated automatically; layers 4–5 written back by audit CLI
     run_label: str = ""                 # Tag for metrics comparison; defaults to git short hash
+    module_model: str = ""              # Model used for module calls when --module-model is set; empty = same as synthesis model
     token_usage: Optional[TokenUsage] = None  # Per-call-type token counts accumulated across the run
     timing: Optional[RoundTiming] = None      # Wall-clock time per round
     modules_attempted: int = 0          # Number of modules configured for this run
@@ -191,11 +192,15 @@ class AdHocModule(BaseModel):
     system_prompt: str          # LLM-generated system prompt
 
 class TokenUsage(BaseModel):
-    analyze_input: int = 0          # sum of input tokens across all client.analyze() calls
-    analyze_output: int = 0         # sum of output tokens across all client.analyze() calls
-    chat_input: int = 0             # client.chat() input tokens (--interactive follow-up mode)
+    analyze_input: int = 0               # sum of input tokens across all client.analyze() calls (module + synthesis)
+    analyze_output: int = 0              # sum of output tokens across all client.analyze() calls
+    module_analyze_input: int = 0        # module-client analyze() input tokens (Haiku when --module-model is set)
+    module_analyze_output: int = 0       # module-client analyze() output tokens
+    synthesis_analyze_input: int = 0     # synthesis-client analyze() input tokens (synthesis, auto-select, gap-check)
+    synthesis_analyze_output: int = 0    # synthesis-client analyze() output tokens
+    chat_input: int = 0                  # client.chat() input tokens (--interactive follow-up mode)
     chat_output: int = 0
-    ptc_orchestrator_input: int = 0  # orchestrating Claude in run_ptc_round() — 0 on pre-PTC builds
+    ptc_orchestrator_input: int = 0      # orchestrating Claude in run_ptc_round() — 0 on pre-PTC builds
     ptc_orchestrator_output: int = 0
     total_input: int = 0
     total_output: int = 0
@@ -313,7 +318,8 @@ mediated-reasoning/
 | `--auto-select` | Adaptive module selection — LLM pre-pass picks relevant modules from a pool of 12 |
 | `--no-search` | Skip web search pre-pass; modules cite from training knowledge only (no Tavily call) |
 | `--deep-research` | After synthesis, run targeted web search on high/critical conflicts and red flags to produce evidence-based verdicts and updated recommendations |
-| `--model MODEL` | Claude model to use |
+| `--model MODEL` | Claude model for synthesis, auto-select, gap-check, and PTC orchestration (default: `claude-sonnet-4-20250514`) |
+| `--module-model MODEL` | Claude model for R1/R2 module analysis calls (default: same as `--model`). Use e.g. `claude-haiku-4-5-20251001` for tiered cost testing |
 | `--run-label LABEL` | Tag this run for metrics comparison (e.g. `pre-ptc`, `ptc`). Defaults to the current git short hash |
 
 ### Interactive Follow-up Mode (`--interactive`)
