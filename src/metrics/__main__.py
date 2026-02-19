@@ -43,6 +43,10 @@ def _extract_metrics(report: Dict) -> Dict[str, Optional[float]]:
     tu = report.get("token_usage") or {}
     m["analyze_input_tok"] = float(tu.get("analyze_input", 0))
     m["analyze_output_tok"] = float(tu.get("analyze_output", 0))
+    m["module_analyze_input_tok"] = float(tu.get("module_analyze_input", 0)) or None
+    m["module_analyze_output_tok"] = float(tu.get("module_analyze_output", 0)) or None
+    m["synthesis_analyze_input_tok"] = float(tu.get("synthesis_analyze_input", 0)) or None
+    m["synthesis_analyze_output_tok"] = float(tu.get("synthesis_analyze_output", 0)) or None
     m["ptc_orch_input_tok"] = float(tu.get("ptc_orchestrator_input", 0))
     m["ptc_orch_output_tok"] = float(tu.get("ptc_orchestrator_output", 0))
     m["total_input_tok"] = float(tu.get("total_input", 0))

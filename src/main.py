@@ -57,7 +57,8 @@ def main():
         description="Mediated Reasoning System - Multi-perspective problem analysis"
     )
     parser.add_argument("problem", nargs="?", help="The problem or idea to analyze")
-    parser.add_argument("--model", default=DEFAULT_MODEL, help=f"Claude model to use (default: {DEFAULT_MODEL})")
+    parser.add_argument("--model", default=DEFAULT_MODEL, help=f"Claude model to use for synthesis (default: {DEFAULT_MODEL})")
+    parser.add_argument("--module-model", default="", help="Model for module analysis calls (default: same as --model). Use e.g. claude-haiku-4-5-20251001 for cheaper/faster module calls.")
     parser.add_argument("--verbose", action="store_true", help="Show detailed round-by-round output")
     parser.add_argument("--report", action="store_true", help="Generate a comprehensive detailed report")
     parser.add_argument("--customer-report", action="store_true", help="Generate a customer-facing report (no internal details)")
@@ -96,7 +97,8 @@ def main():
     raci = DEFAULT_RACI_MATRIX if args.raci else None
 
     client = ClaudeClient(model=args.model)
-    mediator = Mediator(client, weights=weights, raci=raci, auto_select=args.auto_select, search=not args.no_search, deep_research=args.deep_research)
+    module_client = ClaudeClient(model=args.module_model) if args.module_model else None
+    mediator = Mediator(client, weights=weights, raci=raci, auto_select=args.auto_select, search=not args.no_search, deep_research=args.deep_research, module_client=module_client)
 
     print(f"\nAnalyzing: {problem}\n")
     if args.auto_select:

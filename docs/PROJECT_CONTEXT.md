@@ -521,6 +521,24 @@ Token costs break down as follows (mean, ~8 modules, Tavily enabled):
 
 **Expected saving:** Eliminates duplicate Tavily calls. Also reduces Tavily quota consumption and rate-limit exposure. Token savings are indirect (fewer `analyze` calls for query generation if query generation is also cached — but currently only the Tavily fetch is cached, not the LLM query generation step).
 
-### Future: Model Tiering
+### 21. Model Tiering — `--module-model` flag (Implemented)
 
-Use `claude-haiku-4-5` for R1/R2 module calls (cheaper, faster, sufficient for domain-specific structured analysis) and `claude-sonnet-4-6` only for synthesis (where cross-domain reasoning and conflict detection require the stronger model). Estimated saving: ~80% reduction in per-module call cost. Requires validation that Haiku produces comparable structured JSON quality.
+Use a cheaper/faster model for R1/R2 module calls and `claude-sonnet-4-6` only for synthesis, auto-select, gap-check, and PTC orchestration. Enabled via `--module-model claude-haiku-4-5-20251001`.
+
+Token tracking is split: `module_analyze_input/output` tracks module-client calls; `synthesis_analyze_input/output` tracks synthesis-client calls.
+
+**Benchmark: Haiku modules vs Sonnet (all), n=5 vs n=10, WebMCP browser standard, with search:**
+
+| Metric | Sonnet (ptc) | Haiku modules | Δ |
+|--------|-------------|---------------|---|
+| total_input_tok | 85,247 | 124,849 ± 9,774 | +46% |
+| total_output_tok | 15,982 | 47,453 ± 3,253 | +197% |
+| total_s | 151.7s ± 20.4s | 236.2s ± 44.8s | +56% |
+| modules_completed | 7.0 ± 1.2 | 7.8 ± 0.4 | +11% |
+| sources_survived | 75.3 ± 11.5 | 92.4 ± 8.6 | +23% |
+| flags_red | 3.4 ± 0.5 | 4.6 ± 0.9 | +35% |
+| source_survival_pct | 81% ± 3% | 79% ± 5% | −2% |
+
+**Findings:** Haiku module calls are *more* expensive and *slower* for this workload. Haiku generates ~3× more output tokens per module call than Sonnet (44k vs 15k total), hitting the 10k output tokens/minute Haiku rate limit and throttling parallel execution. Quality is comparable or higher (more flags/sources found).
+
+**Conclusion:** Model tiering with Haiku provides no cost or speed benefit for this output-token-heavy workload. The `--module-model` flag remains useful for future experimentation with models that have higher output rate limits or lower verbosity.

@@ -40,6 +40,15 @@ class ClaudeClient:
             total_output=to,
         )
 
+    def _raw_usage(self) -> Dict[str, int]:
+        """Return a copy of the raw usage accumulator with all keys present."""
+        keys = [
+            "analyze_input", "analyze_output",
+            "chat_input", "chat_output",
+            "ptc_orchestrator_input", "ptc_orchestrator_output",
+        ]
+        return {k: self._usage[k] for k in keys}
+
     def analyze(self, system_prompt: str, user_prompt: str) -> Dict:
         logger.debug("Sending request to %s", self.model)
         try:

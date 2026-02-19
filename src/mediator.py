@@ -217,8 +217,18 @@ def _consolidate_resolution_sources(
 
 
 class Mediator:
-    def __init__(self, client: ClaudeClient, weights: Optional[Dict[str, float]] = None, raci: Optional[Dict] = None, auto_select: bool = False, search: bool = True, deep_research: bool = False):
-        self.client = client
+    def __init__(
+        self,
+        client: ClaudeClient,
+        weights: Optional[Dict[str, float]] = None,
+        raci: Optional[Dict] = None,
+        auto_select: bool = False,
+        search: bool = True,
+        deep_research: bool = False,
+        module_client: Optional[ClaudeClient] = None,
+    ):
+        self.client = client                              # synthesis + auto-select + gap-check
+        self.module_client = module_client or client     # module analysis + search queries
         self.weights = weights or {}
         self.raci = raci
         self.auto_select = auto_select
@@ -230,7 +240,7 @@ class Mediator:
             self._init_default_modules()
 
     def _init_default_modules(self):
-        all_modules = [cls(self.client) for cls in MODULE_REGISTRY]
+        all_modules = [cls(self.module_client) for cls in MODULE_REGISTRY]
         self.deactivated_modules = [
             m.name for m in all_modules if self.weights.get(m.name, 1) == 0
         ]
@@ -283,16 +293,16 @@ class Mediator:
             modules = []
             for name in selected_names:
                 if name in registry_by_name:
-                    modules.append(registry_by_name[name](self.client))
+                    modules.append(registry_by_name[name](self.module_client))
                 else:
                     modules.append(
-                        create_dynamic_module(name, MODULE_SYSTEM_PROMPTS[name], self.client)
+                        create_dynamic_module(name, MODULE_SYSTEM_PROMPTS[name], self.module_client)
                     )
 
             # Instantiate ad-hoc modules
             for adhoc in ad_hoc_modules:
                 modules.append(
-                    create_dynamic_module(adhoc.name, adhoc.system_prompt, self.client)
+                    create_dynamic_module(adhoc.name, adhoc.system_prompt, self.module_client)
                 )
 
             # Apply weight=0 deactivation
@@ -410,12 +420,39 @@ class Mediator:
         results.sort(key=lambda r: topic_order.get(r.topic, 999))
         return results
 
+    def _merge_token_usage(self) -> "TokenUsage":
+        from src.models.schemas import TokenUsage
+        if self.module_client is self.client:
+            return self.client.token_usage()
+        m = self.module_client._raw_usage()
+        s = self.client._raw_usage()
+        ai = m["analyze_input"] + s["analyze_input"]
+        ao = m["analyze_output"] + s["analyze_output"]
+        ci = s["chat_input"]
+        co = s["chat_output"]
+        pi = s["ptc_orchestrator_input"]
+        po = s["ptc_orchestrator_output"]
+        return TokenUsage(
+            analyze_input=ai,
+            analyze_output=ao,
+            module_analyze_input=m["analyze_input"],
+            module_analyze_output=m["analyze_output"],
+            synthesis_analyze_input=s["analyze_input"],
+            synthesis_analyze_output=s["analyze_output"],
+            chat_input=ci,
+            chat_output=co,
+            ptc_orchestrator_input=pi,
+            ptc_orchestrator_output=po,
+            total_input=ai + ci + pi,
+            total_output=ao + co + po,
+        )
+
     def analyze(self, problem: str) -> FinalAnalysis:
         if self.auto_select:
             self._select_modules(problem)
 
-        # Create searcher once; each module fetches its own domain-specific sources
-        searcher = SearchPrePass(self.client) if self.search else None
+        # Create searcher once; uses module_client for query generation
+        searcher = SearchPrePass(self.module_client) if self.search else None
 
         t_start = time.perf_counter()
 
@@ -500,6 +537,8 @@ class Mediator:
                     global_sources, conflict_resolutions
                 )
 
+        token_usage = self._merge_token_usage()
+
         return FinalAnalysis(
             problem=problem,
             generated_at=datetime.now(timezone.utc).isoformat(),
@@ -516,7 +555,8 @@ class Mediator:
             search_enabled=self.search,
             conflict_resolutions=conflict_resolutions,
             deep_research_enabled=self.deep_research,
-            token_usage=self.client.token_usage(),
+            module_model=self.module_client.model if self.module_client is not self.client else "",
+            token_usage=token_usage,
             timing=RoundTiming(
                 round1_s=round(t1 - t_start, 2),
                 round2_s=round(t2 - t1, 2),
