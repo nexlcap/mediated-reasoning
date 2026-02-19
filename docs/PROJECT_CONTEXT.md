@@ -169,6 +169,12 @@ class FinalAnalysis(BaseModel):
     deep_research_enabled: bool         # Whether the deep research round ran
     search_context: Optional[SearchContext] # Raw search results from the pre-pass (queries + results)
     audit: Optional[AuditSummary]       # Layers 1–3 populated automatically; layers 4–5 written back by audit CLI
+    run_label: str = ""                 # Tag for metrics comparison; defaults to git short hash
+    token_usage: Optional[TokenUsage] = None  # Per-call-type token counts accumulated across the run
+    timing: Optional[RoundTiming] = None      # Wall-clock time per round
+    modules_attempted: int = 0          # Number of modules configured for this run
+    modules_completed: int = 0          # Number of modules that produced Round 1 output
+    sources_claimed: int = 0            # Total sources before URL dedup/filter in _consolidate_sources()
 
 class SearchResult(BaseModel):
     title: str                  # Page title
@@ -183,6 +189,22 @@ class SearchContext(BaseModel):
 class AdHocModule(BaseModel):
     name: str                   # e.g. "cultural"
     system_prompt: str          # LLM-generated system prompt
+
+class TokenUsage(BaseModel):
+    analyze_input: int = 0          # sum of input tokens across all client.analyze() calls
+    analyze_output: int = 0         # sum of output tokens across all client.analyze() calls
+    chat_input: int = 0             # client.chat() input tokens (--interactive follow-up mode)
+    chat_output: int = 0
+    ptc_orchestrator_input: int = 0  # orchestrating Claude in run_ptc_round() — 0 on pre-PTC builds
+    ptc_orchestrator_output: int = 0
+    total_input: int = 0
+    total_output: int = 0
+
+class RoundTiming(BaseModel):
+    round1_s: float = 0.0       # wall-clock seconds for Round 1 (all modules)
+    round2_s: float = 0.0       # wall-clock seconds for Round 2 (all modules)
+    round3_s: float = 0.0       # wall-clock seconds for synthesis
+    total_s: float = 0.0        # end-to-end wall-clock time
 
 class SelectionMetadata(BaseModel):
     auto_selected: bool         # True when --auto-select was used
@@ -228,6 +250,9 @@ mediated-reasoning/
 │   │   ├── url_checker.py      # Layer 3 — URL reachability (parallel HEAD/GET)
 │   │   ├── grounding_verifier.py # Layer 4 — LLM fact-checks cited claims (Haiku)
 │   │   └── consistency_checker.py # Layer 5 — R1→R2 new-fact detection (Haiku)
+│   ├── metrics/
+│   │   ├── __init__.py
+│   │   └── __main__.py         # Comparison CLI: `python -m src.metrics compare`
 │   └── utils/
 │       ├── __init__.py
 │       ├── logger.py           # Logging
@@ -256,7 +281,7 @@ mediated-reasoning/
 - **Language:** Python 3.11+
 - **Environment:** Conda
 - **LLM:** Claude (Anthropic API)
-- **Dependencies:** `anthropic>=0.72.0` (PTC requires SDK ≥ 0.72 for `code_execution_20250825` tool type and `container` response field)
+- **Dependencies:** `anthropic>=0.49.0`
 - **Libraries:**
   - `anthropic` — API client
   - `pydantic` — Data validation and schemas
@@ -289,6 +314,7 @@ mediated-reasoning/
 | `--no-search` | Skip web search pre-pass; modules cite from training knowledge only (no Tavily call) |
 | `--deep-research` | After synthesis, run targeted web search on high/critical conflicts and red flags to produce evidence-based verdicts and updated recommendations |
 | `--model MODEL` | Claude model to use |
+| `--run-label LABEL` | Tag this run for metrics comparison (e.g. `pre-ptc`, `ptc`). Defaults to the current git short hash |
 
 ### Interactive Follow-up Mode (`--interactive`)
 
@@ -302,6 +328,18 @@ The `--output` flag is a boolean (no filename argument). It calls `export_all()`
 3. Writes `report.md`, `report.json`, and `report.html` into that directory
 
 This ensures every run is preserved and easily comparable.
+
+### Metrics Comparison CLI (`python -m src.metrics`)
+
+`src/metrics/__main__.py` aggregates `report.json` files across runs to surface the concrete impact of code changes (e.g. pre-PTC vs PTC).
+
+```bash
+python -m src.metrics                          # list all runs with labels and timestamps
+python -m src.metrics compare "webmcp"         # compare runs matching a problem slug substring
+python -m src.metrics compare --label pre-ptc ptc  # filter by specific run labels
+```
+
+The CLI globs `output/**/report.json`, groups by `run_label`, and prints a mean±std table with a Δ% column for: token usage (by call type), round timing, module completion rate, source survival rate, flag/conflict counts, and L3 URL reachability rate. Timing improvements >20% are marked with `←`.
 
 ## Design Decisions
 
@@ -385,9 +423,15 @@ Conflicts were originally extracted as free-text strings in the synthesis prompt
 
 ### Why Programmatic Tool Calling (PTC) for Round 1 and Round 2?
 
-Previously, modules ran via `ThreadPoolExecutor` with a 5-second stagger between Round 2 submissions to stay under the 30k input tokens/minute rate limit. This added ~30 seconds of dead time per run (7 modules × 5s) and still caused 429 errors under load because each module's full output accumulated in the orchestrating Claude's message context.
+Previously, modules ran via `ThreadPoolExecutor` with a 5-second stagger between Round 2 submissions to stay under the 30k input tokens/minute rate limit. This added ~30 seconds of dead time per run and still caused 429 errors under load.
 
-**PTC eliminates both problems.** `ClaudeClient.run_ptc_round()` sends a single `messages.create()` with a `code_execution_20250825` tool and an `analyze_module` tool. The orchestrating Claude writes `await asyncio.gather(analyze_module("market"), analyze_module("tech"), ...)` in a code block. The API returns `tool_use` blocks for every module at once. Our server handles them in parallel via `ThreadPoolExecutor` — exactly as before — but now captures the `ModuleOutput` objects server-side and returns only a slim `"ok"` acknowledgement to the container. Module outputs never enter the orchestrating Claude's message context, so they contribute zero tokens to the rate-limit counter.
+**PTC eliminates the stagger.** `ClaudeClient.run_ptc_round()` uses direct tool calling:
+
+1. A single `messages.create()` call defines an `analyze_module` tool (with `module_name` as the only parameter) and instructs the orchestrating Claude to call it once for **every** module in a single response.
+2. The API returns batched `tool_use` blocks — one per module — all in one response.
+3. Our server dispatches them in parallel via `ThreadPoolExecutor`, captures `ModuleOutput` objects server-side, and returns a slim `"ok"` acknowledgement per tool call.
+4. Module outputs never enter the orchestrating Claude's message context, so they contribute zero tokens to the rate-limit counter.
+5. If the orchestrator misses any modules, the loop continues until it returns `end_turn`.
 
 **Concrete effects:**
 - Stagger eliminated → Round 2 is ~30s faster per run
@@ -396,7 +440,7 @@ Previously, modules ran via `ThreadPoolExecutor` with a 5-second stagger between
 - Deep research uses its own `ThreadPoolExecutor`, unchanged
 - Individual module failures are caught per-tool and logged; the round continues with the successful subset
 
-The orchestrator's `max_tokens=512` keeps its own cost negligible — it only needs ~10 lines of Python, not a full analysis response.
+The orchestrator's `max_tokens=512` keeps its own cost negligible — it only needs to emit tool calls, not analysis.
 
 ### Resolved questions
 - **Sequential vs parallel execution within a round:** Modules run in parallel within each round. R1 and R2 use PTC (`run_ptc_round()`); deep research uses `ThreadPoolExecutor` directly. Both approaches dispatch all work simultaneously and collect results as they complete.
