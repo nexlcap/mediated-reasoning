@@ -96,7 +96,7 @@ class ClaudeClient:
             "name": "analyze_module",
             "description": (
                 f"Run Round {round_num} analysis for one expert module. "
-                "Call every module in parallel using asyncio.gather()."
+                "You MUST call this tool once for EVERY module listed, all in the same response."
             ),
             "input_schema": {
                 "type": "object",
@@ -109,42 +109,32 @@ class ClaudeClient:
                 },
                 "required": ["module_name"],
             },
-            "allowed_callers": ["code_execution_20250825"],
         }
-        tools = [{"type": "code_execution_20250825", "name": "code_execution"}, analyze_tool]
+        tools = [analyze_tool]
 
+        module_list = ", ".join(module_names)
         system = (
             "You orchestrate a parallel analysis pipeline. "
-            "Use code execution to call analyze_module() for EVERY module "
-            "in parallel using asyncio.gather(). After all calls complete, print 'done'."
+            f"Call analyze_module once for EVERY module in a single response: {module_list}. "
+            "Do not explain or summarize — just call the tool for each module."
         )
-        module_args = ", ".join(f'analyze_module("{n}")' for n in module_names)
         user = (
-            f"Run Round {round_num} — call all modules in parallel.\n\n"
-            f"Problem: {problem}\n\n"
-            f"Call: await asyncio.gather({module_args})"
+            f"Run Round {round_num} analysis. "
+            f"Call analyze_module for ALL {len(module_names)} modules: {module_list}"
         )
 
         messages = [{"role": "user", "content": user}]
         captured: dict = {}   # module_name -> ModuleOutput
-        container_id = None
 
         while True:
-            kwargs = dict(
+            response = self.client.messages.create(
                 model=self.model,
                 max_tokens=512,
                 system=system,
                 messages=messages,
                 tools=tools,
             )
-            if container_id:
-                kwargs["container"] = container_id
-
-            response = self.client.messages.create(**kwargs)
             self._track("ptc_orchestrator", response)
-
-            if getattr(response, "container", None):
-                container_id = response.container.id
 
             tool_uses = [b for b in response.content if b.type == "tool_use"]
 
