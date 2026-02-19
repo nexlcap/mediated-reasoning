@@ -1,5 +1,6 @@
 import argparse
 import os
+import subprocess
 import sys
 
 from dotenv import load_dotenv
@@ -13,6 +14,16 @@ from src.utils.formatters import format_customer_report, format_detailed_report,
 
 VALID_MODULE_NAMES = set(MODULE_SYSTEM_PROMPTS.keys())
 DEFAULT_MODULE_NAMES = {cls(None).name for cls in MODULE_REGISTRY}
+
+
+def _git_short_hash() -> str:
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            text=True, stderr=subprocess.DEVNULL
+        ).strip()
+    except Exception:
+        return "unknown"
 
 
 def parse_weight(value: str) -> tuple[str, float]:
@@ -46,7 +57,8 @@ def main():
         description="Mediated Reasoning System - Multi-perspective problem analysis"
     )
     parser.add_argument("problem", nargs="?", help="The problem or idea to analyze")
-    parser.add_argument("--model", default=DEFAULT_MODEL, help=f"Claude model to use (default: {DEFAULT_MODEL})")
+    parser.add_argument("--model", default=DEFAULT_MODEL, help=f"Claude model to use for synthesis (default: {DEFAULT_MODEL})")
+    parser.add_argument("--module-model", default="", help="Model for module analysis calls (default: same as --model). Use e.g. claude-haiku-4-5-20251001 for cheaper/faster module calls.")
     parser.add_argument("--verbose", action="store_true", help="Show detailed round-by-round output")
     parser.add_argument("--report", action="store_true", help="Generate a comprehensive detailed report")
     parser.add_argument("--customer-report", action="store_true", help="Generate a customer-facing report (no internal details)")
@@ -61,6 +73,7 @@ def main():
     parser.add_argument("--auto-select", action="store_true", help="Use adaptive module selection (LLM pre-pass to pick relevant modules)")
     parser.add_argument("--no-search", action="store_true", help="Skip web search pre-pass (disables grounded source fetching via Tavily)")
     parser.add_argument("--deep-research", action="store_true", help="After synthesis, run targeted web search on high/critical conflicts and red flags to produce evidence-based verdicts and updated recommendations")
+    parser.add_argument("--run-label", default="", help="Tag for metrics comparison (e.g. 'pre-ptc', 'ptc'). Defaults to git short hash.")
     args = parser.parse_args()
 
     if args.list_modules:
@@ -84,7 +97,8 @@ def main():
     raci = DEFAULT_RACI_MATRIX if args.raci else None
 
     client = ClaudeClient(model=args.model)
-    mediator = Mediator(client, weights=weights, raci=raci, auto_select=args.auto_select, search=not args.no_search, deep_research=args.deep_research)
+    module_client = ClaudeClient(model=args.module_model, max_tokens=2048) if args.module_model else None
+    mediator = Mediator(client, weights=weights, raci=raci, auto_select=args.auto_select, search=not args.no_search, deep_research=args.deep_research, module_client=module_client)
 
     print(f"\nAnalyzing: {problem}\n")
     if args.auto_select:
@@ -94,6 +108,7 @@ def main():
     print("This may take a few minutes.\n")
 
     result = mediator.analyze(problem)
+    result.run_label = args.run_label or _git_short_hash()
 
     if args.verbose:
         round1 = [o for o in result.module_outputs if o.round == 1]

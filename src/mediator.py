@@ -13,7 +13,7 @@ from src.llm.prompts import (
     build_resolution_prompt,
     build_synthesis_prompt,
 )
-from src.models.schemas import AdHocModule, Conflict, ConflictResolution, FinalAnalysis, ModuleOutput, SearchContext, SelectionMetadata
+from src.models.schemas import AdHocModule, Conflict, ConflictResolution, FinalAnalysis, ModuleOutput, RoundTiming, SearchContext, SelectionMetadata
 from src.search import SearchPrePass
 from src.modules import MODULE_REGISTRY
 from src.modules.base_module import create_dynamic_module
@@ -217,8 +217,18 @@ def _consolidate_resolution_sources(
 
 
 class Mediator:
-    def __init__(self, client: ClaudeClient, weights: Optional[Dict[str, float]] = None, raci: Optional[Dict] = None, auto_select: bool = False, search: bool = True, deep_research: bool = False):
-        self.client = client
+    def __init__(
+        self,
+        client: ClaudeClient,
+        weights: Optional[Dict[str, float]] = None,
+        raci: Optional[Dict] = None,
+        auto_select: bool = False,
+        search: bool = True,
+        deep_research: bool = False,
+        module_client: Optional[ClaudeClient] = None,
+    ):
+        self.client = client                              # synthesis + auto-select + gap-check
+        self.module_client = module_client or client     # module analysis + search queries
         self.weights = weights or {}
         self.raci = raci
         self.auto_select = auto_select
@@ -230,7 +240,7 @@ class Mediator:
             self._init_default_modules()
 
     def _init_default_modules(self):
-        all_modules = [cls(self.client) for cls in MODULE_REGISTRY]
+        all_modules = [cls(self.module_client) for cls in MODULE_REGISTRY]
         self.deactivated_modules = [
             m.name for m in all_modules if self.weights.get(m.name, 1) == 0
         ]
@@ -283,16 +293,16 @@ class Mediator:
             modules = []
             for name in selected_names:
                 if name in registry_by_name:
-                    modules.append(registry_by_name[name](self.client))
+                    modules.append(registry_by_name[name](self.module_client))
                 else:
                     modules.append(
-                        create_dynamic_module(name, MODULE_SYSTEM_PROMPTS[name], self.client)
+                        create_dynamic_module(name, MODULE_SYSTEM_PROMPTS[name], self.module_client)
                     )
 
             # Instantiate ad-hoc modules
             for adhoc in ad_hoc_modules:
                 modules.append(
-                    create_dynamic_module(adhoc.name, adhoc.system_prompt, self.client)
+                    create_dynamic_module(adhoc.name, adhoc.system_prompt, self.module_client)
                 )
 
             # Apply weight=0 deactivation
@@ -410,63 +420,79 @@ class Mediator:
         results.sort(key=lambda r: topic_order.get(r.topic, 999))
         return results
 
-    def _run_round1(self, module, problem: str, searcher=None) -> ModuleOutput:
-        return module.run_round1(problem, searcher)
-
-    def _run_round2(self, module, problem: str, round1_dicts: list, searcher=None) -> ModuleOutput:
-        return module.run_round2(problem, round1_dicts, searcher)
+    def _merge_token_usage(self) -> "TokenUsage":
+        from src.models.schemas import TokenUsage
+        if self.module_client is self.client:
+            return self.client.token_usage()
+        m = self.module_client._raw_usage()
+        s = self.client._raw_usage()
+        ai = m["analyze_input"] + s["analyze_input"]
+        ao = m["analyze_output"] + s["analyze_output"]
+        ci = s["chat_input"]
+        co = s["chat_output"]
+        pi = s["ptc_orchestrator_input"]
+        po = s["ptc_orchestrator_output"]
+        return TokenUsage(
+            analyze_input=ai,
+            analyze_output=ao,
+            module_analyze_input=m["analyze_input"],
+            module_analyze_output=m["analyze_output"],
+            synthesis_analyze_input=s["analyze_input"],
+            synthesis_analyze_output=s["analyze_output"],
+            chat_input=ci,
+            chat_output=co,
+            ptc_orchestrator_input=pi,
+            ptc_orchestrator_output=po,
+            total_input=ai + ci + pi,
+            total_output=ao + co + po,
+        )
 
     def analyze(self, problem: str) -> FinalAnalysis:
         if self.auto_select:
             self._select_modules(problem)
 
-        # Create searcher once; each module fetches its own domain-specific sources
-        searcher = SearchPrePass(self.client) if self.search else None
+        # Create searcher once; uses module_client for query generation
+        searcher = SearchPrePass(self.module_client) if self.search else None
 
-        # Round 1: Independent analysis (parallel, each module searches its own domain)
+        t_start = time.perf_counter()
+
+        # Round 1: Independent analysis (all modules dispatched in parallel via PTC)
         logger.info("Starting Round 1: Independent Analysis")
         round1_outputs: List[ModuleOutput] = []
-        with ThreadPoolExecutor(max_workers=len(self.modules)) as executor:
-            future_to_module = {
-                executor.submit(self._run_round1, module, problem, searcher): module
-                for module in self.modules
-            }
-            for future in as_completed(future_to_module):
-                module = future_to_module[future]
-                try:
-                    output = future.result()
-                    round1_outputs.append(output)
-                except Exception as e:
-                    logger.error("Module %s failed in Round 1: %s", module.name, e)
-        # Preserve deterministic ordering by module registry order
+        try:
+            round1_outputs = self.client.run_ptc_round(
+                problem, self.modules, searcher=searcher
+            )
+        except Exception as e:
+            logger.error("Round 1 failed: %s", e)
         module_order = {m.name: i for i, m in enumerate(self.modules)}
         round1_outputs.sort(key=lambda o: module_order[o.module_name])
 
-        # Round 2: Informed revision (parallel, staggered to avoid token rate limits)
+        t1 = time.perf_counter()
+
+        # Round 2: Informed revision (all eligible modules dispatched in parallel via PTC)
         logger.info("Starting Round 2: Informed Revision")
         round1_dicts = [o.model_dump() for o in round1_outputs]
         round1_names = {o.module_name for o in round1_outputs}
         eligible_modules = [m for m in self.modules if m.name in round1_names]
         round2_outputs: List[ModuleOutput] = []
-        with ThreadPoolExecutor(max_workers=len(eligible_modules) or 1) as executor:
-            future_to_module = {}
-            for i, module in enumerate(eligible_modules):
-                if i > 0:
-                    time.sleep(5)  # stagger submissions to stay within token/min limits
-                future_to_module[executor.submit(self._run_round2, module, problem, round1_dicts, searcher)] = module
-            for future in as_completed(future_to_module):
-                module = future_to_module[future]
-                try:
-                    output = future.result()
-                    round2_outputs.append(output)
-                except Exception as e:
-                    logger.error("Module %s failed in Round 2: %s", module.name, e)
-        # Preserve deterministic ordering by module registry order
+        if eligible_modules:
+            try:
+                round2_outputs = self.client.run_ptc_round(
+                    problem, eligible_modules, round1_outputs=round1_dicts, searcher=searcher
+                )
+            except Exception as e:
+                logger.error("Round 2 failed: %s", e)
         round2_outputs.sort(key=lambda o: module_order[o.module_name])
+
+        t2 = time.perf_counter()
+
+        # Capture sources_claimed BEFORE _consolidate_sources deduplicates/filters them
+        all_outputs = round1_outputs + round2_outputs
+        sources_claimed = sum(len(o.sources) for o in all_outputs)
 
         # Round 3: Synthesis
         logger.info("Starting Round 3: Synthesis")
-        all_outputs = round1_outputs + round2_outputs
 
         synthesis_result = {}
         if all_outputs:
@@ -489,6 +515,8 @@ class Mediator:
         else:
             logger.error("All modules failed — no data to synthesize")
 
+        t3 = time.perf_counter()
+
         # Final consolidation: remap all inline citations consistently
         global_sources, remapped_outputs, remapped_synthesis = (
             _consolidate_sources(all_outputs, synthesis_result)
@@ -509,6 +537,8 @@ class Mediator:
                     global_sources, conflict_resolutions
                 )
 
+        token_usage = self._merge_token_usage()
+
         return FinalAnalysis(
             problem=problem,
             generated_at=datetime.now(timezone.utc).isoformat(),
@@ -525,6 +555,17 @@ class Mediator:
             search_enabled=self.search,
             conflict_resolutions=conflict_resolutions,
             deep_research_enabled=self.deep_research,
+            module_model=self.module_client.model if self.module_client is not self.client else "",
+            token_usage=token_usage,
+            timing=RoundTiming(
+                round1_s=round(t1 - t_start, 2),
+                round2_s=round(t2 - t1, 2),
+                round3_s=round(t3 - t2, 2),
+                total_s=round(t3 - t_start, 2),
+            ),
+            modules_attempted=len(self.modules),
+            modules_completed=len(round1_outputs),
+            sources_claimed=sources_claimed,
         )
 
     def followup(self, analysis: FinalAnalysis, question: str) -> str:

@@ -91,6 +91,28 @@ class AuditSummary(BaseModel):
     layer5_results: List[ConsistencyResult] = Field(default_factory=list)
 
 
+class TokenUsage(BaseModel):
+    analyze_input: int = 0             # total analyze() tokens (module + synthesis)
+    analyze_output: int = 0
+    module_analyze_input: int = 0      # module calls only (Haiku when tiered)
+    module_analyze_output: int = 0
+    synthesis_analyze_input: int = 0   # synthesis + auto-select + gap-check (Sonnet)
+    synthesis_analyze_output: int = 0
+    chat_input: int = 0
+    chat_output: int = 0
+    ptc_orchestrator_input: int = 0
+    ptc_orchestrator_output: int = 0
+    total_input: int = 0
+    total_output: int = 0
+
+
+class RoundTiming(BaseModel):
+    round1_s: float = 0.0
+    round2_s: float = 0.0
+    round3_s: float = 0.0
+    total_s: float = 0.0
+
+
 class FinalAnalysis(BaseModel):
     problem: str
     generated_at: str = ""
@@ -109,3 +131,10 @@ class FinalAnalysis(BaseModel):
     conflict_resolutions: List[ConflictResolution] = Field(default_factory=list)
     deep_research_enabled: bool = False
     audit: Optional[AuditSummary] = None
+    run_label: str = ""
+    module_model: str = ""             # model used for module calls (empty = same as synthesis)
+    token_usage: Optional[TokenUsage] = None
+    timing: Optional[RoundTiming] = None
+    modules_attempted: int = 0
+    modules_completed: int = 0
+    sources_claimed: int = 0

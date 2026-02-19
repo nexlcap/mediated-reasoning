@@ -5,8 +5,15 @@ if TYPE_CHECKING:
 
 
 def _format_round1_outputs(
-    round1_outputs: List[Dict], weights: Optional[Dict[str, float]] = None
+    round1_outputs: List[Dict],
+    weights: Optional[Dict[str, float]] = None,
+    brief: bool = False,
 ) -> str:
+    """Serialise Round 1 outputs for inclusion in prompts.
+
+    brief=True (used for R2 cross-module context): only summary + flags.
+    brief=False (default, used for synthesis): full analysis dict.
+    """
     sections = []
     for output in round1_outputs:
         name = output['module_name']
@@ -15,11 +22,19 @@ def _format_round1_outputs(
         if weight != 1:
             header += f" (Weight: {weight}x)"
         header += " ---"
-        sections.append(
-            f"{header}\n"
-            f"Analysis: {output['analysis']}\n"
-            f"Flags: {output['flags']}\n"
-        )
+        if brief:
+            summary = output.get('analysis', {}).get('summary', '')
+            sections.append(
+                f"{header}\n"
+                f"Summary: {summary}\n"
+                f"Flags: {output['flags']}\n"
+            )
+        else:
+            sections.append(
+                f"{header}\n"
+                f"Analysis: {output['analysis']}\n"
+                f"Flags: {output['flags']}\n"
+            )
     return "\n".join(sections)
 
 
@@ -168,6 +183,7 @@ def _module_json_instruction(has_search_context: bool) -> str:
         f'  {sources_field}\n'
         "}\n\n"
         f"{sources_rule}"
+        "\n\nCONCISENESS: Maximum 5 items per array. One sentence per item. Omit minor points."
     )
 
 
@@ -210,7 +226,7 @@ def build_round2_prompt(
     user = (
         f"Original problem:\n{problem}\n\n"
         f"Other modules' Round 1 analyses:\n\n"
-        f"{_format_round1_outputs(other_outputs)}\n\n"
+        f"{_format_round1_outputs(other_outputs, brief=True)}\n\n"
         f"{search_section}"
         f"Now provide your revised analysis for the {module_name} perspective.\n\n"
         f"{_module_json_instruction(has_search_context=bool(search_context))}"
