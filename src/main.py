@@ -1,5 +1,6 @@
 import argparse
 import os
+import subprocess
 import sys
 
 from dotenv import load_dotenv
@@ -13,6 +14,16 @@ from src.utils.formatters import format_customer_report, format_detailed_report,
 
 VALID_MODULE_NAMES = set(MODULE_SYSTEM_PROMPTS.keys())
 DEFAULT_MODULE_NAMES = {cls(None).name for cls in MODULE_REGISTRY}
+
+
+def _git_short_hash() -> str:
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            text=True, stderr=subprocess.DEVNULL
+        ).strip()
+    except Exception:
+        return "unknown"
 
 
 def parse_weight(value: str) -> tuple[str, float]:
@@ -61,6 +72,7 @@ def main():
     parser.add_argument("--auto-select", action="store_true", help="Use adaptive module selection (LLM pre-pass to pick relevant modules)")
     parser.add_argument("--no-search", action="store_true", help="Skip web search pre-pass (disables grounded source fetching via Tavily)")
     parser.add_argument("--deep-research", action="store_true", help="After synthesis, run targeted web search on high/critical conflicts and red flags to produce evidence-based verdicts and updated recommendations")
+    parser.add_argument("--run-label", default="", help="Tag for metrics comparison (e.g. 'pre-ptc', 'ptc'). Defaults to git short hash.")
     args = parser.parse_args()
 
     if args.list_modules:
@@ -94,6 +106,7 @@ def main():
     print("This may take a few minutes.\n")
 
     result = mediator.analyze(problem)
+    result.run_label = args.run_label or _git_short_hash()
 
     if args.verbose:
         round1 = [o for o in result.module_outputs if o.round == 1]

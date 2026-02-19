@@ -1,4 +1,5 @@
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
@@ -12,7 +13,7 @@ from src.llm.prompts import (
     build_resolution_prompt,
     build_synthesis_prompt,
 )
-from src.models.schemas import AdHocModule, Conflict, ConflictResolution, FinalAnalysis, ModuleOutput, SearchContext, SelectionMetadata
+from src.models.schemas import AdHocModule, Conflict, ConflictResolution, FinalAnalysis, ModuleOutput, RoundTiming, SearchContext, SelectionMetadata
 from src.search import SearchPrePass
 from src.modules import MODULE_REGISTRY
 from src.modules.base_module import create_dynamic_module
@@ -416,6 +417,8 @@ class Mediator:
         # Create searcher once; each module fetches its own domain-specific sources
         searcher = SearchPrePass(self.client) if self.search else None
 
+        t_start = time.perf_counter()
+
         # Round 1: Independent analysis (all modules dispatched in parallel via PTC)
         logger.info("Starting Round 1: Independent Analysis")
         round1_outputs: List[ModuleOutput] = []
@@ -427,6 +430,8 @@ class Mediator:
             logger.error("Round 1 failed: %s", e)
         module_order = {m.name: i for i, m in enumerate(self.modules)}
         round1_outputs.sort(key=lambda o: module_order[o.module_name])
+
+        t1 = time.perf_counter()
 
         # Round 2: Informed revision (all eligible modules dispatched in parallel via PTC)
         logger.info("Starting Round 2: Informed Revision")
@@ -443,9 +448,14 @@ class Mediator:
                 logger.error("Round 2 failed: %s", e)
         round2_outputs.sort(key=lambda o: module_order[o.module_name])
 
+        t2 = time.perf_counter()
+
+        # Capture sources_claimed BEFORE _consolidate_sources deduplicates/filters them
+        all_outputs = round1_outputs + round2_outputs
+        sources_claimed = sum(len(o.sources) for o in all_outputs)
+
         # Round 3: Synthesis
         logger.info("Starting Round 3: Synthesis")
-        all_outputs = round1_outputs + round2_outputs
 
         synthesis_result = {}
         if all_outputs:
@@ -467,6 +477,8 @@ class Mediator:
                 logger.error("Synthesis failed: %s", e)
         else:
             logger.error("All modules failed — no data to synthesize")
+
+        t3 = time.perf_counter()
 
         # Final consolidation: remap all inline citations consistently
         global_sources, remapped_outputs, remapped_synthesis = (
@@ -504,6 +516,16 @@ class Mediator:
             search_enabled=self.search,
             conflict_resolutions=conflict_resolutions,
             deep_research_enabled=self.deep_research,
+            token_usage=self.client.token_usage(),
+            timing=RoundTiming(
+                round1_s=round(t1 - t_start, 2),
+                round2_s=round(t2 - t1, 2),
+                round3_s=round(t3 - t2, 2),
+                total_s=round(t3 - t_start, 2),
+            ),
+            modules_attempted=len(self.modules),
+            modules_completed=len(round1_outputs),
+            sources_claimed=sources_claimed,
         )
 
     def followup(self, analysis: FinalAnalysis, question: str) -> str:

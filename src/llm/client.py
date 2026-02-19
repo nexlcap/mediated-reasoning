@@ -1,5 +1,6 @@
 import json
 import re
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Optional
 
@@ -16,6 +17,28 @@ class ClaudeClient:
     def __init__(self, model: str = DEFAULT_MODEL):
         self.client = anthropic.Anthropic()
         self.model = model
+        self._usage: Dict[str, int] = defaultdict(int)
+
+    def _track(self, key_prefix: str, response) -> None:
+        if hasattr(response, "usage") and response.usage:
+            self._usage[f"{key_prefix}_input"] += response.usage.input_tokens
+            self._usage[f"{key_prefix}_output"] += response.usage.output_tokens
+
+    def token_usage(self) -> "TokenUsage":
+        from src.models.schemas import TokenUsage
+        u = self._usage
+        ti = u["analyze_input"] + u["chat_input"] + u["ptc_orchestrator_input"]
+        to = u["analyze_output"] + u["chat_output"] + u["ptc_orchestrator_output"]
+        return TokenUsage(
+            analyze_input=u["analyze_input"],
+            analyze_output=u["analyze_output"],
+            chat_input=u["chat_input"],
+            chat_output=u["chat_output"],
+            ptc_orchestrator_input=u["ptc_orchestrator_input"],
+            ptc_orchestrator_output=u["ptc_orchestrator_output"],
+            total_input=ti,
+            total_output=to,
+        )
 
     def analyze(self, system_prompt: str, user_prompt: str) -> Dict:
         logger.debug("Sending request to %s", self.model)
@@ -26,6 +49,7 @@ class ClaudeClient:
                 system=system_prompt,
                 messages=[{"role": "user", "content": user_prompt}],
             )
+            self._track("analyze", response)
             text = response.content[0].text
             return self._extract_json(text)
         except anthropic.APIError as e:
@@ -45,6 +69,7 @@ class ClaudeClient:
                 system=system_prompt,
                 messages=[{"role": "user", "content": user_prompt}],
             )
+            self._track("chat", response)
             return response.content[0].text
         except anthropic.APIError as e:
             logger.error("API error: %s", e)
@@ -116,6 +141,7 @@ class ClaudeClient:
                 kwargs["container"] = container_id
 
             response = self.client.messages.create(**kwargs)
+            self._track("ptc_orchestrator", response)
 
             if getattr(response, "container", None):
                 container_id = response.container.id
