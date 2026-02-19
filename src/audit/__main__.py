@@ -132,7 +132,8 @@ def main() -> int:
                     analysis.audit = AuditSummary()
                 analysis.audit.layer4_ran = True
                 analysis.audit.layer4_results = [
-                    GroundingResult(**r) for r in (results or [])
+                    GroundingResult(**{**r, "citation": f"[{r['citation']}]"})
+                    for r in (results or [])
                 ]
 
         elif layer == 5:
