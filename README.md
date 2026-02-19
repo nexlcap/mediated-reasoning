@@ -1,47 +1,51 @@
 # Mediated Reasoning
 
-A CLI tool that uses multi-agent mediated reasoning to analyze complex problems from multiple perspectives. Three default modules (market, cost, risk) independently assess a problem, revise after seeing each other's work, and a mediator synthesizes the results into a final analysis with conflict detection and actionable recommendations. Additional specialist modules (tech, legal, scalability, and more) can be activated via `--auto-select`.
+A CLI tool that uses multi-agent mediated reasoning to analyze complex problems from multiple perspectives. Specialist modules independently assess a problem, revise after seeing each other's work, and a mediator synthesizes the results into a final analysis with conflict detection, priority flags, and actionable recommendations with inline source citations.
 
 ## How It Works
 
-The system runs a 3-round process (7 API calls with default modules):
+Three rounds of structured reasoning:
 
-1. **Round 1 -- Independent Analysis:** Each module analyzes the problem independently, ensuring unbiased initial perspectives.
-2. **Round 2 -- Informed Revision:** Modules see each other's Round 1 outputs and revise their analysis.
-3. **Round 3 -- Synthesis:** The mediator identifies conflicts between modules, flags critical issues (red/yellow/green), and generates final recommendations with inline source citations.
+1. **Round 1 — Independent Analysis:** Each module analyzes the problem independently, ensuring unbiased initial perspectives.
+2. **Round 2 — Informed Revision:** Modules see each other's Round 1 outputs and revise their analysis.
+3. **Round 3 — Synthesis:** The mediator identifies conflicts between modules, flags critical issues (red/yellow/green), and generates final recommendations.
 
-Modules run in parallel within each round using `ThreadPoolExecutor`.
+Modules run in parallel within each round via programmatic tool calling (PTC). A Tavily web search pre-pass grounds each module's analysis in real, cited sources.
 
 ## Setup
 
 ```bash
-# Clone and set up environment
 conda create -n mediated-reasoning python=3.11
 conda activate mediated-reasoning
 pip install -r requirements.txt
 
-# Configure API key
 cp .env.example .env
-# Edit .env and add your Anthropic API key
+# Add ANTHROPIC_API_KEY and TAVILY_API_KEY to .env
 ```
 
 ## Usage
 
 ```bash
-# Basic analysis
+# Basic analysis (3 default modules: market, cost, risk)
 python -m src.main "Should we build a food delivery app?"
 
-# Detailed internal report
-python -m src.main "your problem" --report
-
-# Customer-facing report (no internal details)
-python -m src.main "your problem" --customer-report
+# Adaptive module selection — LLM picks relevant modules from a pool of 12
+python -m src.main "your problem" --auto-select
 
 # Export all formats (md, json, html) to output/ directory
 python -m src.main "your problem" --output
 
-# Combine flags
-python -m src.main "your problem" --report --output
+# Customer-facing report (no internal details)
+python -m src.main "your problem" --customer-report
+
+# Detailed internal report (round-by-round breakdown)
+python -m src.main "your problem" --report
+
+# Skip web search (cite from training knowledge only)
+python -m src.main "your problem" --no-search
+
+# Deep research round: targeted evidence gathering for conflicts and red flags
+python -m src.main "your problem" --deep-research
 
 # Interactive follow-up questions after analysis
 python -m src.main "your problem" --interactive
@@ -49,22 +53,17 @@ python -m src.main "your problem" --interactive
 # Adjust module weights (0 deactivates a module)
 python -m src.main "your problem" --weight legal=2 --weight cost=0
 
-# Adaptive module selection (LLM pre-pass picks relevant modules)
-python -m src.main "your problem" --auto-select
+# Use a separate model for module calls (e.g. for cost testing)
+python -m src.main "your problem" --module-model claude-haiku-4-5-20251001
 
-# RACI matrix for conflict resolution
-python -m src.main "your problem" --raci
+# Tag run for metrics comparison
+python -m src.main "your problem" --output --run-label baseline
 
 # List available modules
 python -m src.main --list-modules
-
-# Verbose output (shows round-by-round details)
-python -m src.main "your problem" --verbose
 ```
 
 ### Output Directory Structure
-
-When using `--output`, reports are organized by problem and timestamp:
 
 ```
 output/
@@ -75,11 +74,30 @@ output/
       report.html
 ```
 
+### Metrics Comparison
+
+Compare token usage, timing, and quality metrics across labelled runs:
+
+```bash
+python -m src.metrics                              # list all runs
+python -m src.metrics compare "food delivery"     # filter by problem
+python -m src.metrics compare --label baseline v2 # compare two labels
+```
+
+### Source Integrity Audit
+
+Five-layer audit for hallucination detection, run automatically (layers 1–3) with `--output`:
+
+```bash
+python -m src.audit report.json --all         # run all layers
+python -m src.audit report.json --layer 3     # URL reachability only
+python -m src.audit report.json --layer 4     # grounding verification (20% sample)
+python -m src.audit report.json --layer 5     # R1→R2 consistency check
+```
+
 ## Sample Reports
 
-The `public-output/` directory contains example reports generated by the system:
-
-- [`webmcp-investment-analysis_report.html`](public-output/webmcp-investment-analysis_report.html) — Should a software company invest in WebMCP support now?
+Published reports are available on **[GitHub Pages](https://nexlcak.github.io/mediated-reasoning/)**.
 
 ## Testing
 
