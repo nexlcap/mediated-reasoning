@@ -92,8 +92,12 @@ class AuditSummary(BaseModel):
 
 
 class TokenUsage(BaseModel):
-    analyze_input: int = 0
+    analyze_input: int = 0             # total analyze() tokens (module + synthesis)
     analyze_output: int = 0
+    module_analyze_input: int = 0      # module calls only (Haiku when tiered)
+    module_analyze_output: int = 0
+    synthesis_analyze_input: int = 0   # synthesis + auto-select + gap-check (Sonnet)
+    synthesis_analyze_output: int = 0
     chat_input: int = 0
     chat_output: int = 0
     ptc_orchestrator_input: int = 0
@@ -128,6 +132,7 @@ class FinalAnalysis(BaseModel):
     deep_research_enabled: bool = False
     audit: Optional[AuditSummary] = None
     run_label: str = ""
+    module_model: str = ""             # model used for module calls (empty = same as synthesis)
     token_usage: Optional[TokenUsage] = None
     timing: Optional[RoundTiming] = None
     modules_attempted: int = 0

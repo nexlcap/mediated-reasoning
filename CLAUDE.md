@@ -31,5 +31,7 @@ CLI tool using multi-agent mediated reasoning to analyze complex problems from m
 | 15 | Runtime re-delegation on failure — retry/redistribute failed modules | Open |
 | 16 | Per-module trust scores — dynamic reliability tracking across runs | Open |
 | 17 | Web search pre-pass (Tavily) — grounded real citations, `--no-search` flag | Done |
-| 18 | Programmatic Tool Calling (PTC) — parallel R1/R2 via code execution, eliminates stagger | Done (feature/ptc) |
-| 19 | Metrics infrastructure — `TokenUsage`, `RoundTiming`, `--run-label`, `python -m src.metrics compare` | Done (main + feature/ptc) |
+| 18 | Programmatic Tool Calling (PTC) — parallel R1/R2 via direct tool calling, eliminates stagger | Done |
+| 19 | Slim R2 cross-module context — pass only summary+flags to other modules in Round 2 | Done |
+| 20 | Shared Tavily query cache — deduplicate Tavily calls across modules within a run | Done |
+| 21 | Model tiering (`--module-model`) — separate model for module vs synthesis calls | Done |

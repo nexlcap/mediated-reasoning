@@ -1,13 +1,11 @@
-import threading
-
 import pytest
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 from src.llm.client import ClaudeClient
 from src.llm.prompts import DEFAULT_RACI_MATRIX
 from src.mediator import Mediator
-from src.models.schemas import FinalAnalysis, TokenUsage
-from tests.conftest import SAMPLE_LLM_RESPONSE, SAMPLE_SYNTHESIS_RESPONSE
+from src.models.schemas import FinalAnalysis, ModuleOutput, TokenUsage
+from tests.conftest import SAMPLE_LLM_RESPONSE, SAMPLE_SYNTHESIS_RESPONSE, _fake_ptc_round
 
 SAMPLE_SYNTHESIS_WITH_DISCLAIMER = {
     **SAMPLE_SYNTHESIS_RESPONSE,
@@ -15,36 +13,24 @@ SAMPLE_SYNTHESIS_WITH_DISCLAIMER = {
 }
 
 
-def _thread_safe_side_effect(responses):
-    """Return a side_effect callable that pops from a list in a thread-safe way."""
-    lock = threading.Lock()
-    queue = list(responses)
+def _make_ptc_client(synthesis_response=None):
+    """Create a MagicMock ClaudeClient configured for PTC tests.
 
-    def side_effect(*args, **kwargs):
-        with lock:
-            item = queue.pop(0)
-        if isinstance(item, Exception):
-            raise item
-        return item
-
-    return side_effect
-
-
-def _make_client(responses=None):
-    """Create a MagicMock ClaudeClient with token_usage returning a real TokenUsage."""
+    run_ptc_round is stubbed with _fake_ptc_round (returns ModuleOutputs directly).
+    analyze returns synthesis_response (defaults to SAMPLE_SYNTHESIS_RESPONSE).
+    token_usage returns a real TokenUsage() so Pydantic validation passes.
+    """
     client = MagicMock(spec=ClaudeClient)
+    client.run_ptc_round.side_effect = _fake_ptc_round
+    client.analyze.return_value = synthesis_response or SAMPLE_SYNTHESIS_RESPONSE
     client.token_usage.return_value = TokenUsage()
-    if responses is not None:
-        client.analyze.side_effect = _thread_safe_side_effect(responses)
     return client
 
 
 class TestMediator:
     @pytest.fixture
     def mediator_client(self):
-        # First 6 calls (3 round1 + 3 round2) return module output
-        # Last call returns synthesis
-        return _make_client([SAMPLE_LLM_RESPONSE] * 6 + [SAMPLE_SYNTHESIS_RESPONSE])
+        return _make_ptc_client()
 
     def test_analyze_returns_final_analysis(self, mediator_client, sample_problem):
         mediator = Mediator(mediator_client)
@@ -53,12 +39,13 @@ class TestMediator:
         assert isinstance(result, FinalAnalysis)
         assert result.problem == sample_problem
 
-    def test_seven_api_calls(self, mediator_client, sample_problem):
+    def test_ptc_and_synthesis_calls(self, mediator_client, sample_problem):
         mediator = Mediator(mediator_client)
         mediator.analyze(sample_problem)
 
-        # 3 round1 + 3 round2 + 1 synthesis = 7
-        assert mediator_client.analyze.call_count == 7
+        # run_ptc_round called twice (R1 and R2), analyze called once (synthesis)
+        assert mediator_client.run_ptc_round.call_count == 2
+        assert mediator_client.analyze.call_count == 1
 
     def test_module_outputs_collected(self, mediator_client, sample_problem):
         mediator = Mediator(mediator_client)
@@ -83,12 +70,29 @@ class TestMediator:
         assert len(result.recommendations) > 0
 
     def test_graceful_degradation(self, sample_problem):
-        responses = (
-            [Exception("API error")] + [SAMPLE_LLM_RESPONSE] * 2
-            + [SAMPLE_LLM_RESPONSE] * 2
-            + [SAMPLE_SYNTHESIS_RESPONSE]
-        )
-        client = _make_client(responses)
+        client = MagicMock(spec=ClaudeClient)
+        client.token_usage.return_value = TokenUsage()
+
+        # R1 returns only 2 modules (market failed inside PTC)
+        call_count = [0]
+        def _partial_ptc(problem, modules, round1_outputs=None, searcher=None):
+            call_count[0] += 1
+            round_num = 2 if round1_outputs is not None else 1
+            # R1: skip first module (simulates one module failing inside run_ptc_round)
+            effective = modules if round_num == 2 else modules[1:]
+            return [
+                ModuleOutput(
+                    module_name=m.name,
+                    round=round_num,
+                    analysis=SAMPLE_LLM_RESPONSE["analysis"],
+                    flags=SAMPLE_LLM_RESPONSE["flags"],
+                    revised=(round_num == 2),
+                )
+                for m in effective
+            ]
+
+        client.run_ptc_round.side_effect = _partial_ptc
+        client.analyze.return_value = SAMPLE_SYNTHESIS_RESPONSE
 
         mediator = Mediator(client)
         result = mediator.analyze(sample_problem)
@@ -98,8 +102,9 @@ class TestMediator:
         assert len(result.module_outputs) == 4
 
     def test_total_failure_returns_empty_analysis(self, sample_problem):
-        client = _make_client()
-        client.analyze.side_effect = Exception("API error")
+        client = MagicMock(spec=ClaudeClient)
+        client.token_usage.return_value = TokenUsage()
+        client.run_ptc_round.side_effect = Exception("API error")
 
         mediator = Mediator(client)
         result = mediator.analyze(sample_problem)
@@ -110,7 +115,10 @@ class TestMediator:
         assert result.synthesis == ""
 
     def test_synthesis_failure_returns_partial_result(self, sample_problem):
-        client = _make_client([SAMPLE_LLM_RESPONSE] * 6 + [Exception("API error")])
+        client = MagicMock(spec=ClaudeClient)
+        client.token_usage.return_value = TokenUsage()
+        client.run_ptc_round.side_effect = _fake_ptc_round
+        client.analyze.side_effect = Exception("API error")
 
         mediator = Mediator(client)
         result = mediator.analyze(sample_problem)
@@ -138,30 +146,32 @@ class TestMediator:
 
 class TestMediatorWeights:
     def test_weight_zero_deactivates_module(self, sample_problem):
-        client = _make_client([SAMPLE_LLM_RESPONSE] * 4 + [SAMPLE_SYNTHESIS_WITH_DISCLAIMER])
+        client = _make_ptc_client(synthesis_response=SAMPLE_SYNTHESIS_WITH_DISCLAIMER)
 
         mediator = Mediator(client, weights={"cost": 0})
         result = mediator.analyze(sample_problem)
 
-        assert client.analyze.call_count == 5
+        # run_ptc_round called for R1 + R2; analyze called for synthesis only
+        assert client.run_ptc_round.call_count == 2
+        assert client.analyze.call_count == 1
         module_names = {o.module_name for o in result.module_outputs}
         assert "cost" not in module_names
         assert len(module_names) == 2
 
     def test_deactivated_modules_tracked(self):
-        client = _make_client()
+        client = _make_ptc_client()
         mediator = Mediator(client, weights={"cost": 0, "risk": 0})
         assert set(mediator.deactivated_modules) == {"cost", "risk"}
         assert len(mediator.modules) == 1
 
     def test_weight_nonzero_keeps_module(self):
-        client = _make_client()
+        client = _make_ptc_client()
         mediator = Mediator(client, weights={"risk": 2})
         assert mediator.deactivated_modules == []
         assert len(mediator.modules) == 3
 
     def test_disclaimer_passed_through(self, sample_problem):
-        client = _make_client([SAMPLE_LLM_RESPONSE] * 4 + [SAMPLE_SYNTHESIS_WITH_DISCLAIMER])
+        client = _make_ptc_client(synthesis_response=SAMPLE_SYNTHESIS_WITH_DISCLAIMER)
 
         mediator = Mediator(client, weights={"cost": 0})
         result = mediator.analyze(sample_problem)
@@ -169,7 +179,7 @@ class TestMediatorWeights:
         assert "cost" in result.deactivated_disclaimer.lower()
 
     def test_no_disclaimer_without_deactivation(self, sample_problem):
-        client = _make_client([SAMPLE_LLM_RESPONSE] * 6 + [SAMPLE_SYNTHESIS_RESPONSE])
+        client = _make_ptc_client()
 
         mediator = Mediator(client, weights={"risk": 2})
         result = mediator.analyze(sample_problem)
@@ -177,7 +187,7 @@ class TestMediatorWeights:
         assert result.deactivated_disclaimer == ""
 
     def test_weights_passed_to_synthesis_prompt(self, sample_problem):
-        client = _make_client([SAMPLE_LLM_RESPONSE] * 4 + [SAMPLE_SYNTHESIS_WITH_DISCLAIMER])
+        client = _make_ptc_client(synthesis_response=SAMPLE_SYNTHESIS_WITH_DISCLAIMER)
 
         mediator = Mediator(client, weights={"cost": 0, "risk": 2})
         with patch("src.mediator.build_synthesis_prompt", wraps=__import__("src.llm.prompts", fromlist=["build_synthesis_prompt"]).build_synthesis_prompt) as mock_prompt:
@@ -187,7 +197,7 @@ class TestMediatorWeights:
             assert kwargs["deactivated_modules"] == ["cost"]
 
     def test_default_no_weights(self):
-        client = _make_client()
+        client = _make_ptc_client()
         mediator = Mediator(client)
         assert mediator.weights == {}
         assert mediator.deactivated_modules == []
@@ -196,7 +206,7 @@ class TestMediatorWeights:
 
 class TestMediatorRaci:
     def test_raci_passed_to_synthesis_prompt(self, sample_problem):
-        client = _make_client([SAMPLE_LLM_RESPONSE] * 6 + [SAMPLE_SYNTHESIS_RESPONSE])
+        client = _make_ptc_client()
 
         mediator = Mediator(client, raci=DEFAULT_RACI_MATRIX)
         with patch("src.mediator.build_synthesis_prompt", wraps=__import__("src.llm.prompts", fromlist=["build_synthesis_prompt"]).build_synthesis_prompt) as mock_prompt:
@@ -205,14 +215,14 @@ class TestMediatorRaci:
             assert kwargs["raci"] is DEFAULT_RACI_MATRIX
 
     def test_raci_matrix_in_final_analysis(self, sample_problem):
-        client = _make_client([SAMPLE_LLM_RESPONSE] * 6 + [SAMPLE_SYNTHESIS_RESPONSE])
+        client = _make_ptc_client()
 
         mediator = Mediator(client, raci=DEFAULT_RACI_MATRIX)
         result = mediator.analyze(sample_problem)
         assert result.raci_matrix == DEFAULT_RACI_MATRIX
 
     def test_no_raci_by_default(self, sample_problem):
-        client = _make_client([SAMPLE_LLM_RESPONSE] * 6 + [SAMPLE_SYNTHESIS_RESPONSE])
+        client = _make_ptc_client()
 
         mediator = Mediator(client)
         result = mediator.analyze(sample_problem)
@@ -255,46 +265,54 @@ SAMPLE_SELECTION_INVALID_NAMES = {
 
 class TestMediatorAutoSelect:
     def test_auto_select_calls_selection_and_gap_check(self, sample_problem):
-        """Auto-select makes 2 pre-pass calls + N*2 round calls + 1 synthesis."""
-        # 2 pre-pass + 3 round1 + 3 round2 + 1 synthesis = 9
-        client = _make_client(
-            [SAMPLE_SELECTION_RESPONSE, SAMPLE_GAP_CHECK_NO_GAPS]
-            + [SAMPLE_LLM_RESPONSE] * 6
-            + [SAMPLE_SYNTHESIS_RESPONSE]
-        )
+        """Auto-select makes 2 pre-pass analyze calls + 2 run_ptc_round calls + 1 synthesis."""
+        client = MagicMock(spec=ClaudeClient)
+        client.token_usage.return_value = TokenUsage()
+        client.analyze.side_effect = [
+            SAMPLE_SELECTION_RESPONSE,
+            SAMPLE_GAP_CHECK_NO_GAPS,
+            SAMPLE_SYNTHESIS_RESPONSE,
+        ]
+        client.run_ptc_round.side_effect = _fake_ptc_round
 
         mediator = Mediator(client, auto_select=True)
         result = mediator.analyze(sample_problem)
 
-        assert client.analyze.call_count == 9
+        assert client.analyze.call_count == 3   # selection + gap check + synthesis
+        assert client.run_ptc_round.call_count == 2  # R1 + R2
         assert isinstance(result, FinalAnalysis)
         assert result.selection_metadata is not None
         assert result.selection_metadata.auto_selected is True
 
     def test_auto_select_with_weight_zero_deactivates(self, sample_problem):
         """Weight=0 vetoes an auto-selected module."""
-        # Selection returns 3 modules, weight=0 vetoes "cost" -> 2 active
-        # 2 pre-pass + 2 round1 + 2 round2 + 1 synthesis = 7
-        client = _make_client(
-            [SAMPLE_SELECTION_RESPONSE, SAMPLE_GAP_CHECK_NO_GAPS]
-            + [SAMPLE_LLM_RESPONSE] * 4
-            + [SAMPLE_SYNTHESIS_RESPONSE]
-        )
+        client = MagicMock(spec=ClaudeClient)
+        client.token_usage.return_value = TokenUsage()
+        client.analyze.side_effect = [
+            SAMPLE_SELECTION_RESPONSE,
+            SAMPLE_GAP_CHECK_NO_GAPS,
+            SAMPLE_SYNTHESIS_RESPONSE,
+        ]
+        client.run_ptc_round.side_effect = _fake_ptc_round
 
         mediator = Mediator(client, weights={"cost": 0}, auto_select=True)
         result = mediator.analyze(sample_problem)
 
-        assert client.analyze.call_count == 7
+        assert client.analyze.call_count == 3
+        assert client.run_ptc_round.call_count == 2
         module_names = {o.module_name for o in result.module_outputs}
         assert "cost" not in module_names
 
     def test_auto_select_no_gaps(self, sample_problem):
         """Gap check returns empty, no ad-hoc modules created."""
-        client = _make_client(
-            [SAMPLE_SELECTION_RESPONSE, SAMPLE_GAP_CHECK_NO_GAPS]
-            + [SAMPLE_LLM_RESPONSE] * 6
-            + [SAMPLE_SYNTHESIS_RESPONSE]
-        )
+        client = MagicMock(spec=ClaudeClient)
+        client.token_usage.return_value = TokenUsage()
+        client.analyze.side_effect = [
+            SAMPLE_SELECTION_RESPONSE,
+            SAMPLE_GAP_CHECK_NO_GAPS,
+            SAMPLE_SYNTHESIS_RESPONSE,
+        ]
+        client.run_ptc_round.side_effect = _fake_ptc_round
 
         mediator = Mediator(client, auto_select=True)
         result = mediator.analyze(sample_problem)
@@ -303,12 +321,14 @@ class TestMediatorAutoSelect:
 
     def test_auto_select_caps_adhoc_at_3(self, sample_problem):
         """LLM returns 5 ad-hoc, only 3 are used."""
-        # 3 selected + 3 ad-hoc = 6 modules: 2 pre-pass + 6*2 round + 1 synthesis = 15
-        client = _make_client(
-            [SAMPLE_SELECTION_RESPONSE, SAMPLE_GAP_CHECK_5_ADHOC]
-            + [SAMPLE_LLM_RESPONSE] * 12
-            + [SAMPLE_SYNTHESIS_RESPONSE]
-        )
+        client = MagicMock(spec=ClaudeClient)
+        client.token_usage.return_value = TokenUsage()
+        client.analyze.side_effect = [
+            SAMPLE_SELECTION_RESPONSE,
+            SAMPLE_GAP_CHECK_5_ADHOC,
+            SAMPLE_SYNTHESIS_RESPONSE,
+        ]
+        client.run_ptc_round.side_effect = _fake_ptc_round
 
         mediator = Mediator(client, auto_select=True)
         result = mediator.analyze(sample_problem)
@@ -317,13 +337,14 @@ class TestMediatorAutoSelect:
 
     def test_auto_select_invalid_module_names_filtered(self, sample_problem):
         """Unknown module names from selection are dropped."""
-        # Only market + tech survive (nonexistent dropped) -> 2 modules
-        # 2 pre-pass + 2*2 round + 1 synthesis = 7
-        client = _make_client(
-            [SAMPLE_SELECTION_INVALID_NAMES, SAMPLE_GAP_CHECK_NO_GAPS]
-            + [SAMPLE_LLM_RESPONSE] * 4
-            + [SAMPLE_SYNTHESIS_RESPONSE]
-        )
+        client = MagicMock(spec=ClaudeClient)
+        client.token_usage.return_value = TokenUsage()
+        client.analyze.side_effect = [
+            SAMPLE_SELECTION_INVALID_NAMES,
+            SAMPLE_GAP_CHECK_NO_GAPS,
+            SAMPLE_SYNTHESIS_RESPONSE,
+        ]
+        client.run_ptc_round.side_effect = _fake_ptc_round
 
         mediator = Mediator(client, auto_select=True)
         result = mediator.analyze(sample_problem)
@@ -334,22 +355,26 @@ class TestMediatorAutoSelect:
         assert "tech" in module_names
 
     def test_default_mode_unaffected(self, sample_problem):
-        """Without --auto-select, still 7 calls (3 defaults)."""
-        client = _make_client([SAMPLE_LLM_RESPONSE] * 6 + [SAMPLE_SYNTHESIS_RESPONSE])
+        """Without --auto-select, analyze only called for synthesis."""
+        client = _make_ptc_client()
 
         mediator = Mediator(client)
         result = mediator.analyze(sample_problem)
 
-        assert client.analyze.call_count == 7
+        assert client.run_ptc_round.call_count == 2
+        assert client.analyze.call_count == 1
         assert result.selection_metadata is None
 
     def test_selection_metadata_in_final_analysis(self, sample_problem):
         """Metadata is populated correctly in the result."""
-        client = _make_client(
-            [SAMPLE_SELECTION_RESPONSE, SAMPLE_GAP_CHECK_WITH_ADHOC]
-            + [SAMPLE_LLM_RESPONSE] * 8  # 3 selected + 1 ad-hoc = 4 modules * 2 rounds
-            + [SAMPLE_SYNTHESIS_RESPONSE]
-        )
+        client = MagicMock(spec=ClaudeClient)
+        client.token_usage.return_value = TokenUsage()
+        client.analyze.side_effect = [
+            SAMPLE_SELECTION_RESPONSE,
+            SAMPLE_GAP_CHECK_WITH_ADHOC,
+            SAMPLE_SYNTHESIS_RESPONSE,
+        ]
+        client.run_ptc_round.side_effect = _fake_ptc_round
 
         mediator = Mediator(client, auto_select=True)
         result = mediator.analyze(sample_problem)
@@ -365,17 +390,15 @@ class TestMediatorAutoSelect:
 
     def test_auto_select_fallback_on_failure(self, sample_problem):
         """If selection LLM call fails, fall back to 3 default modules."""
-        # First call (selection) fails, then default 3*2 + 1 = 7 calls
-        client = _make_client(
-            [Exception("API error")]
-            + [SAMPLE_LLM_RESPONSE] * 6
-            + [SAMPLE_SYNTHESIS_RESPONSE]
-        )
+        client = MagicMock(spec=ClaudeClient)
+        client.token_usage.return_value = TokenUsage()
+        client.analyze.side_effect = [Exception("API error"), SAMPLE_SYNTHESIS_RESPONSE]
+        client.run_ptc_round.side_effect = _fake_ptc_round
 
         mediator = Mediator(client, auto_select=True)
         result = mediator.analyze(sample_problem)
 
-        # 1 failed selection + 6 round + 1 synthesis = 8
-        assert client.analyze.call_count == 8
+        # 1 failed selection + 1 synthesis = 2 analyze calls
+        assert client.analyze.call_count == 2
         assert len(result.module_outputs) == 6
         assert result.selection_metadata is None

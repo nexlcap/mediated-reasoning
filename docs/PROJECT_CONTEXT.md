@@ -151,22 +151,6 @@ class AuditSummary(BaseModel):
     layer5_ran: bool                # Whether R1→R2 consistency checker (Layer 5) was run
     layer5_results: List[ConsistencyResult] # Per-module consistency results
 
-class TokenUsage(BaseModel):
-    analyze_input: int              # Input tokens across all client.analyze() calls
-    analyze_output: int             # Output tokens across all client.analyze() calls
-    chat_input: int                 # Input tokens for client.chat() (--interactive mode)
-    chat_output: int
-    ptc_orchestrator_input: int     # Orchestrating Claude tokens in run_ptc_round() — 0 on main branch
-    ptc_orchestrator_output: int
-    total_input: int                # Sum of all input tokens
-    total_output: int               # Sum of all output tokens
-
-class RoundTiming(BaseModel):
-    round1_s: float                 # Wall-clock seconds for Round 1 (perf_counter)
-    round2_s: float                 # Wall-clock seconds for Round 2
-    round3_s: float                 # Wall-clock seconds for synthesis
-    total_s: float                  # End-to-end wall-clock seconds
-
 class FinalAnalysis(BaseModel):
     problem: str
     generated_at: str               # ISO 8601 UTC timestamp set by mediator.analyze()
@@ -185,12 +169,13 @@ class FinalAnalysis(BaseModel):
     deep_research_enabled: bool         # Whether the deep research round ran
     search_context: Optional[SearchContext] # Raw search results from the pre-pass (queries + results)
     audit: Optional[AuditSummary]       # Layers 1–3 populated automatically; layers 4–5 written back by audit CLI
-    run_label: str                      # Tag for metrics comparison (--run-label flag; defaults to git short hash)
-    token_usage: Optional[TokenUsage]   # Per-call-type token breakdown; populated by ClaudeClient._usage accumulator
-    timing: Optional[RoundTiming]       # Wall-clock seconds per round; populated by perf_counter in mediator.analyze()
-    modules_attempted: int              # Number of modules instantiated (len(self.modules))
-    modules_completed: int              # Modules that produced a Round 1 output
-    sources_claimed: int                # Total sources before URL dedup/filter (sum over all module outputs)
+    run_label: str = ""                 # Tag for metrics comparison; defaults to git short hash
+    module_model: str = ""              # Model used for module calls when --module-model is set; empty = same as synthesis model
+    token_usage: Optional[TokenUsage] = None  # Per-call-type token counts accumulated across the run
+    timing: Optional[RoundTiming] = None      # Wall-clock time per round
+    modules_attempted: int = 0          # Number of modules configured for this run
+    modules_completed: int = 0          # Number of modules that produced Round 1 output
+    sources_claimed: int = 0            # Total sources before URL dedup/filter in _consolidate_sources()
 
 class SearchResult(BaseModel):
     title: str                  # Page title
@@ -205,6 +190,26 @@ class SearchContext(BaseModel):
 class AdHocModule(BaseModel):
     name: str                   # e.g. "cultural"
     system_prompt: str          # LLM-generated system prompt
+
+class TokenUsage(BaseModel):
+    analyze_input: int = 0               # sum of input tokens across all client.analyze() calls (module + synthesis)
+    analyze_output: int = 0              # sum of output tokens across all client.analyze() calls
+    module_analyze_input: int = 0        # module-client analyze() input tokens (Haiku when --module-model is set)
+    module_analyze_output: int = 0       # module-client analyze() output tokens
+    synthesis_analyze_input: int = 0     # synthesis-client analyze() input tokens (synthesis, auto-select, gap-check)
+    synthesis_analyze_output: int = 0    # synthesis-client analyze() output tokens
+    chat_input: int = 0                  # client.chat() input tokens (--interactive follow-up mode)
+    chat_output: int = 0
+    ptc_orchestrator_input: int = 0      # orchestrating Claude in run_ptc_round() — 0 on pre-PTC builds
+    ptc_orchestrator_output: int = 0
+    total_input: int = 0
+    total_output: int = 0
+
+class RoundTiming(BaseModel):
+    round1_s: float = 0.0       # wall-clock seconds for Round 1 (all modules)
+    round2_s: float = 0.0       # wall-clock seconds for Round 2 (all modules)
+    round3_s: float = 0.0       # wall-clock seconds for synthesis
+    total_s: float = 0.0        # end-to-end wall-clock time
 
 class SelectionMetadata(BaseModel):
     auto_selected: bool         # True when --auto-select was used
@@ -252,7 +257,7 @@ mediated-reasoning/
 │   │   └── consistency_checker.py # Layer 5 — R1→R2 new-fact detection (Haiku)
 │   ├── metrics/
 │   │   ├── __init__.py
-│   │   └── __main__.py         # CLI: python -m src.metrics [compare] — cross-run comparison table
+│   │   └── __main__.py         # Comparison CLI: `python -m src.metrics compare`
 │   └── utils/
 │       ├── __init__.py
 │       ├── logger.py           # Logging
@@ -270,7 +275,7 @@ mediated-reasoning/
 │   ├── test_module_selection.py # Prompt builders, dynamic module factory
 │   ├── test_exporters.py      # Export format tests
 │   ├── test_audit.py          # Audit layers 1 & 2 tests
-│   └── test_metrics.py        # src.metrics comparison CLI tests
+│   └── test_ptc.py            # run_ptc_round() unit tests
 ├── docs/
 ├── .env.example
 └── requirements.txt
@@ -281,6 +286,7 @@ mediated-reasoning/
 - **Language:** Python 3.11+
 - **Environment:** Conda
 - **LLM:** Claude (Anthropic API)
+- **Dependencies:** `anthropic>=0.72.0`
 - **Libraries:**
   - `anthropic` — API client
   - `pydantic` — Data validation and schemas
@@ -312,8 +318,9 @@ mediated-reasoning/
 | `--auto-select` | Adaptive module selection — LLM pre-pass picks relevant modules from a pool of 12 |
 | `--no-search` | Skip web search pre-pass; modules cite from training knowledge only (no Tavily call) |
 | `--deep-research` | After synthesis, run targeted web search on high/critical conflicts and red flags to produce evidence-based verdicts and updated recommendations |
-| `--run-label LABEL` | Tag this run for metrics comparison (e.g. `--run-label pre-ptc`). Defaults to the current git short hash. Written to `report.json` as `run_label`. |
-| `--model MODEL` | Claude model to use |
+| `--model MODEL` | Claude model for synthesis, auto-select, gap-check, and PTC orchestration (default: `claude-sonnet-4-20250514`) |
+| `--module-model MODEL` | Claude model for R1/R2 module analysis calls (default: same as `--model`). Use e.g. `claude-haiku-4-5-20251001` for tiered cost testing |
+| `--run-label LABEL` | Tag this run for metrics comparison (e.g. `pre-ptc`, `ptc`). Defaults to the current git short hash |
 
 ### Interactive Follow-up Mode (`--interactive`)
 
@@ -330,15 +337,15 @@ This ensures every run is preserved and easily comparable.
 
 ### Metrics Comparison CLI (`python -m src.metrics`)
 
-After collecting multiple runs with `--output --run-label <label>`, compare them:
+`src/metrics/__main__.py` aggregates `report.json` files across runs to surface the concrete impact of code changes (e.g. pre-PTC vs PTC).
 
 ```bash
-python -m src.metrics                          # list all runs with labels and paths
-python -m src.metrics compare "webmcp"         # filter by problem slug substring
-python -m src.metrics compare --label pre-ptc ptc  # filter by specific labels
+python -m src.metrics                          # list all runs with labels and timestamps
+python -m src.metrics compare "webmcp"         # compare runs matching a problem slug substring
+python -m src.metrics compare --label pre-ptc ptc  # filter by specific run labels
 ```
 
-The compare command globs `output/**/report.json` recursively, extracts numeric metrics from each report, groups by `run_label`, and prints a mean ± std table with a `Δ%` column between the first two labels. Metrics covered: token usage per call type, wall-clock seconds per round, module completion, source survival rate, flag/conflict counts, and Layer 3 URL reachability. Large timing improvements (>20% drop) are highlighted with a `←` marker.
+The CLI globs `output/**/report.json`, groups by `run_label`, and prints a mean±std table with a Δ% column for: token usage (by call type), round timing, module completion rate, source survival rate, flag/conflict counts, and L3 URL reachability rate. Timing improvements >20% are marked with `←`.
 
 ## Design Decisions
 
@@ -420,8 +427,42 @@ When modules are deactivated via `--weight module=0`, the synthesis must include
 ### Why structured Conflict objects instead of free-text?
 Conflicts were originally extracted as free-text strings in the synthesis prompt. This made them inconsistent — sometimes a paragraph, sometimes a bullet point, with no reliable way to identify which modules disagreed or how severe the conflict was. Switching to structured `Conflict` objects (`modules`, `topic`, `description`, `severity`) forces the LLM to produce machine-readable, consistent conflict data that can be filtered, sorted, and rendered uniformly across export formats.
 
+### Why Programmatic Tool Calling (PTC) for Round 1 and Round 2?
+
+Previously, modules ran via `ThreadPoolExecutor` with a 5-second stagger between Round 2 submissions to stay under the 30k input tokens/minute rate limit. This added ~30 seconds of dead time per run and still caused 429 errors under load.
+
+**PTC eliminates the stagger.** `ClaudeClient.run_ptc_round()` uses direct tool calling:
+
+1. A single `messages.create()` call defines an `analyze_module` tool (with `module_name` as the only parameter) and instructs the orchestrating Claude to call it once for **every** module in a single response.
+2. The API returns batched `tool_use` blocks — one per module — all in one response.
+3. Our server dispatches them in parallel via `ThreadPoolExecutor`, captures `ModuleOutput` objects server-side, and returns a slim `"ok"` acknowledgement per tool call.
+4. Module outputs never enter the orchestrating Claude's message context, so they contribute zero tokens to the rate-limit counter.
+5. If the orchestrator misses any modules, the loop continues until it returns `end_turn`.
+
+**Measured results** (n=10 runs each, `--auto-select`, Tavily search enabled, ~7–8 modules per run):
+
+| Metric | pre-PTC (main) | PTC (feature/ptc) | Δ |
+|--------|---------------|-------------------|---|
+| round2_s | 98.9s ± 10.3s | 80.8s ± 15.4s | **−18%** |
+| round1_s | 40.5s ± 8.0s | 48.2s ± 6.8s | +19% |
+| total_s | 165.1s ± 15.5s | 151.7s ± 20.4s | **−8%** |
+| ptc_orch_input_tok | 0 | 3,414 ± 457 | new |
+| total_input_tok | 93,746 ± 10,222 | 85,247 ± 14,093 | −9% |
+| source_survival_pct | 76% ± 3% | 81% ± 3% | +6% |
+| L3 URL ok | 91% ± 2% | 91% ± 3% | = |
+
+Round 2 savings are real but bounded by Tavily network I/O (~5–10s/module): with search active, network latency dominates over the eliminated 5s stagger. Without search the stagger was the bottleneck and Round 2 drops ~51%. Round 1 is slightly slower (+19%) due to the orchestrator round-trip overhead (~7s). Quality metrics (source survival, URL reachability, conflicts) are unchanged.
+
+**Other effects:**
+- Module outputs (R1, R2) stay off the orchestrating context → lower rate-limit exposure regardless of module count
+- Synthesis (Round 3) is a single direct `client.analyze()` call, unchanged
+- Deep research uses its own `ThreadPoolExecutor`, unchanged
+- Individual module failures are caught per-tool and logged; the round continues with the successful subset
+
+The orchestrator's `max_tokens=512` keeps its own cost negligible — it only needs to emit tool calls, not analysis.
+
 ### Resolved questions
-- **Sequential vs parallel execution within a round:** Modules run in parallel within each round using `ThreadPoolExecutor`. Since modules are independent within a round, this cuts wall-clock time from sequential API calls to parallel batches (R1 parallel + R2 parallel + synthesis).
+- **Sequential vs parallel execution within a round:** Modules run in parallel within each round. R1 and R2 use PTC (`run_ptc_round()`); deep research uses `ThreadPoolExecutor` directly. Both approaches dispatch all work simultaneously and collect results as they complete.
 
 ## Design Principles
 
@@ -457,3 +498,70 @@ The following features are inspired by *"Intelligent AI Delegation"* (Tomašev, 
 **Current behavior:** All modules start with equal credibility. `--weight` is a static, user-supplied knob with no memory across runs.
 
 **Proposed:** Track each module's historical reliability — e.g. how often its flags were validated in synthesis, how often its analysis was contradicted, how specific vs. vague its outputs are — and use that to automatically adjust module influence over time. A module that consistently produces vague or contradicted analysis would get downweighted without the user needing to manually set `--weight`. Requires persistence (local DB or JSON file) to track run history across sessions.
+
+## Token Optimization
+
+Token costs break down as follows (mean, ~8 modules, Tavily enabled):
+
+| Round | Estimated tokens | Driver |
+|-------|-----------------|--------|
+| R1 | ~23k | 8 × (system prompt + search context) |
+| **R2** | **~46k** | 8 × (system prompt + search context + all other modules' full R1 outputs) |
+| R3 synthesis | ~13k | system prompt + all 16 outputs + global sources |
+
+**R2 is the dominant cost** because each module receives every other module's full `analysis` dict as cross-module context. With 8 modules, that is 7 full analysis objects per prompt × 8 prompts = 56 redundant analysis payloads per run.
+
+### 19. Slim R2 Cross-Module Context (Implemented)
+
+**Problem:** `_format_round1_outputs()` serialises the complete `analysis` dict (summary, key_findings, opportunities, risks, and all other fields) for every other module. A module revising its perspective only needs to know *what the other modules concluded* and *what they flagged* — not the full structured breakdown.
+
+**Implementation:** Added `brief=True` parameter to `_format_round1_outputs`. When `brief=True`, only `summary` and `flags` are included per module. `build_round2_prompt` passes `brief=True` for other modules' outputs. The synthesis prompt still receives full outputs because it needs the complete picture to identify conflicts.
+
+**Expected saving:** ~50–60% reduction in R2 cross-module payload → estimated −15k to −20k total input tokens per run (−18–25%).
+
+### 20. Shared Tavily Query Cache (Implemented)
+
+**Problem:** Each module independently generates queries and calls Tavily. Across 8 modules × 2 rounds = 16 `run_for_module` calls, many queries are near-identical (e.g. multiple modules asking about "WebMCP browser support"). Each duplicate query costs one Tavily API call and returns the same results.
+
+**Implementation:** `SearchPrePass` maintains a `_query_cache: Dict[str, List[SearchResult]]` keyed by exact query string. In `_fetch_results`, each query is checked against the cache before calling Tavily. Cache hits return stored results immediately; cache misses store results before returning. The cache lives for the lifetime of the `SearchPrePass` instance (one per `mediator.analyze()` call), so it is shared across all modules and both rounds.
+
+**Expected saving:** Eliminates duplicate Tavily calls. Also reduces Tavily quota consumption and rate-limit exposure. Token savings are indirect (fewer `analyze` calls for query generation if query generation is also cached — but currently only the Tavily fetch is cached, not the LLM query generation step).
+
+### 21. Model Tiering — `--module-model` flag (Implemented)
+
+Use a cheaper/faster model for R1/R2 module calls and `claude-sonnet-4-6` only for synthesis, auto-select, gap-check, and PTC orchestration. Enabled via `--module-model claude-haiku-4-5-20251001`.
+
+Token tracking is split: `module_analyze_input/output` tracks module-client calls; `synthesis_analyze_input/output` tracks synthesis-client calls.
+
+**Verbosity problem and two levers to fix it:**
+
+Haiku without constraints generates ~3× more output tokens per module call than Sonnet. Root causes: (1) no per-array item limit in the JSON schema, (2) `max_tokens=4096` gives too much room. Two levers were added:
+
+- **Lever A — `max_tokens` per client**: `ClaudeClient.__init__` accepts `max_tokens: int = 4096`. Module client is created with `max_tokens=2048` when `--module-model` is set. This caps per-call output and reduces Haiku rate-limit exposure.
+- **Lever B — conciseness instruction**: `_module_json_instruction()` appends `"CONCISENESS: Maximum 5 items per array. One sentence per item. Omit minor points."` to every module prompt. Applies to all models; keeps Haiku focused.
+
+**Benchmarks (WebMCP browser standard, with search):**
+
+| Label | n | module_out_tok | total_s | modules_completed |
+|-------|---|----------------|---------|-------------------|
+| Sonnet (ptc) | 10 | ~15k | 151.7s ± 20s | 7.0 ± 1.2 |
+| Haiku (unconstrained) | 5 | 44,771 ± 3,188 | 236.2s ± 44.8s | 7.8 ± 0.4 |
+| Haiku (compact, max_tokens=2048 + conciseness) | 5 | ~22k | ~105s | 7.4 ± 1.1 |
+
+Compact Haiku halves module output tokens vs unconstrained (~22k vs 44k) and cuts wall time from 236s to ~105s. Still ~30% slower than Sonnet due to Haiku's 10k output tokens/min org rate limit.
+
+**Cost math (approximate Anthropic pricing):**
+
+| | Module output tokens | Output price/MTok | Relative cost |
+|---|---|---|---|
+| Sonnet modules | ~15k | $15 | 1× |
+| Haiku compact modules | ~22k | $4 | **0.59×** |
+
+Haiku compact module calls are ~40% cheaper than Sonnet. But the rate-limit penalty makes total runs ~30% slower, so the trade-off only makes sense if cost matters more than latency.
+
+**When Haiku makes sense:**
+- Higher-tier rate limit (50k+ output tokens/min) — speed penalty disappears
+- Fewer modules (3–4 via `--weight`) — output tokens per run stay under the 10k/min limit
+- Batch/async workloads — latency doesn't matter, 40% cost saving is real
+
+**Conclusion:** For interactive use with `--auto-select` (8 modules), Sonnet is faster and more reliable. The `--module-model` flag is worth keeping: compact Haiku is genuinely cheaper per run, and a higher rate limit would make it strictly better.
