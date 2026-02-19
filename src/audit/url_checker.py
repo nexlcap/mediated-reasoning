@@ -67,11 +67,12 @@ def _check_url(url: str, timeout: int) -> Dict:
             r = httpx.get(url, follow_redirects=True, timeout=timeout,
                           headers={**headers, "Range": "bytes=0-0"})
         ok = r.status_code < 400 or r.status_code == 416  # 416 = range not satisfiable but URL exists
-        return {"url": url, "status": r.status_code, "error": None, "ok": ok}
+        bot_blocked = r.status_code in (401, 403, 429)   # blocked by anti-bot, not a missing page
+        return {"url": url, "status": r.status_code, "error": None, "ok": ok, "bot_blocked": bot_blocked}
     except httpx.TimeoutException:
-        return {"url": url, "status": None, "error": "timeout", "ok": False}
+        return {"url": url, "status": None, "error": "timeout", "ok": False, "bot_blocked": False}
     except Exception as e:
-        return {"url": url, "status": None, "error": str(e), "ok": False}
+        return {"url": url, "status": None, "error": str(e), "ok": False, "bot_blocked": False}
 
 
 def check_urls(analysis: FinalAnalysis, timeout: int = 8,
@@ -105,13 +106,20 @@ def main(args: List[str] = None) -> int:
     results = check_urls(analysis, timeout=parsed.timeout)
 
     ok = [r for r in results if r["ok"]]
-    failures = [r for r in results if not r["ok"]]
+    bot_blocked = [r for r in results if not r["ok"] and r.get("bot_blocked")]
+    real_failures = [r for r in results if not r["ok"] and not r.get("bot_blocked")]
 
-    print(f"Reachable: {len(ok)}/{len(results)}")
+    print(f"Reachable: {len(ok)}/{len(results)}"
+          + (f"  ({len(bot_blocked)} bot-blocked)" if bot_blocked else ""))
 
-    if failures:
+    if bot_blocked:
+        print("\nBOT-BLOCKED (403/429 — page likely exists, crawler denied):")
+        for r in bot_blocked:
+            print(f"  [{r['status']}] {r['url']}")
+
+    if real_failures:
         print("\nFAILURES:")
-        for r in failures:
+        for r in real_failures:
             status = r["status"] or "ERR"
             detail = r["error"] or ""
             print(f"  [{status}] {r['url']}  {detail}")

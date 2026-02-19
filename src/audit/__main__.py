@@ -95,11 +95,17 @@ def main() -> int:
             print(f"Checking {len(urls)} URLs...")
             results = check_urls(analysis)
             ok = [r for r in results if r["ok"]]
-            failures = [r for r in results if not r["ok"]]
-            print(f"Reachable: {len(ok)}/{len(results)}")
-            if failures:
+            bot_blocked = [r for r in results if not r["ok"] and r.get("bot_blocked")]
+            real_failures = [r for r in results if not r["ok"] and not r.get("bot_blocked")]
+            print(f"Reachable: {len(ok)}/{len(results)}"
+                  + (f"  ({len(bot_blocked)} bot-blocked)" if bot_blocked else ""))
+            if bot_blocked:
+                print("BOT-BLOCKED (403/429 — page likely exists, crawler denied):")
+                for r in bot_blocked:
+                    print(f"  [{r['status']}] {r['url']}")
+            if real_failures:
                 print("FAILURES:")
-                for r in failures:
+                for r in real_failures:
                     status = r["status"] or "ERR"
                     print(f"  [{status}] {r['url']}  {r['error'] or ''}")
                 exit_code = 1

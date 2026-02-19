@@ -62,6 +62,7 @@ class UrlCheckResult(BaseModel):
     status: Optional[int] = None
     error: Optional[str] = None
     ok: bool
+    bot_blocked: bool = False   # True when status is 403/401/429 — URL likely exists but blocks crawlers
 
 
 class GroundingResult(BaseModel):
