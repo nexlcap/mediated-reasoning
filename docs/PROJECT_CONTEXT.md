@@ -228,6 +228,7 @@ mediated-reasoning/
 │   ├── __init__.py
 │   ├── main.py                # CLI entry point
 │   ├── mediator.py             # Orchestrates the 3-round process
+│   ├── observability.py        # Optional Langfuse/OTEL tracing (no-op without keys)
 │   ├── modules/
 │   │   ├── __init__.py
 │   │   ├── base_module.py      # Base class + create_dynamic_module() factory
@@ -295,6 +296,9 @@ mediated-reasoning/
   - `pytest` — Testing
   - `tavily-python` — Web search API client for grounded source pre-pass
   - `httpx` — HTTP client for URL reachability checks and source page fetching (audit layers 3 & 4)
+- **Optional dependencies** (`requirements-langfuse.txt` — not installed by default):
+  - `langfuse>=3.0.0` — hosted LLM observability dashboard (traces, cost, latency)
+  - `opentelemetry-instrumentation-anthropic` — auto-instruments `anthropic.messages.create()` calls as OTEL spans
 
 ## Use Cases
 
@@ -471,6 +475,30 @@ Round 2 savings are real but bounded by Tavily network I/O (~5–10s/module): wi
 - Individual module failures are caught per-tool and logged; the round continues with the successful subset
 
 The orchestrator's `max_tokens=512` keeps its own cost negligible — it only needs to emit tool calls, not analysis.
+
+### Why is Langfuse observability optional, and how does it degrade gracefully?
+
+`src/observability.py` provides LLM call tracing (token counts, latency, cost) via Langfuse's hosted dashboard using their SDK v3 (OTEL-based). The integration is deliberately optional so that:
+
+- **No forced dependency** — users who don't need tracing don't install `langfuse` or `opentelemetry-instrumentation-anthropic`. Core `requirements.txt` is unchanged.
+- **Zero runtime impact without keys** — `observability.setup()` is called once in `main()` after `load_dotenv()`. If `LANGFUSE_PUBLIC_KEY` or `LANGFUSE_SECRET_KEY` are missing, or if the optional packages aren't installed, `_enabled` stays `False` and all functions (`trace()`, `span()`, `get_otel_context()`) become silent no-ops via early-return context managers. No exceptions, no log noise.
+- **Auto-instrumentation** — `AnthropicInstrumentor().instrument()` patches `anthropic.Anthropic().messages.create()` at the OTEL level, so every API call is automatically captured as a Langfuse generation (model, prompt, response, token counts) without any changes to call sites.
+
+**Trace hierarchy produced when keys are set:**
+
+```
+Trace: "mediated-reasoning" [input=problem, metadata={run_label, model, modules}]
+├── Span: "auto-select"       (if --auto-select)
+├── Span: "round-1"
+│   ├── Generation: ptc-orchestrator call  (auto-captured)
+│   └── Generation: module:market / tech / …  (auto-captured per thread)
+├── Span: "round-2"
+│   └── …
+├── Span: "synthesis"
+└── Span: "deep-research"     (if --deep-research)
+```
+
+**Thread context propagation:** `run_ptc_round()` dispatches module calls via `ThreadPoolExecutor`. OTEL context (the active span) does not propagate to worker threads automatically. Before submitting work, `observability.get_otel_context()` captures the current context; `_with_otel_ctx(ctx, fn, ...)` re-attaches it inside each worker using `otel_context.attach(token)` / `detach(token)`. This ensures module generations are correctly nested under their round span rather than appearing as disconnected root spans.
 
 ### Resolved questions
 - **Sequential vs parallel execution within a round:** Modules run in parallel within each round. R1 and R2 use PTC (`run_ptc_round()`); deep research uses `ThreadPoolExecutor` directly. Both approaches dispatch all work simultaneously and collect results as they complete.

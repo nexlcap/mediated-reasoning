@@ -53,6 +53,9 @@ def parse_weight(value: str) -> tuple[str, float]:
 def main():
     load_dotenv()
 
+    from src import observability
+    observability.setup()
+
     parser = argparse.ArgumentParser(
         description="Mediated Reasoning System - Multi-perspective problem analysis"
     )
@@ -107,7 +110,13 @@ def main():
         print("Running 3-round mediated reasoning (7 API calls)...")
     print("This may take a few minutes.\n")
 
-    result = mediator.analyze(problem)
+    module_names = [m.name for m in mediator.modules] if not args.auto_select else []
+    with observability.trace(
+        "mediated-reasoning",
+        input=problem,
+        metadata={"run_label": args.run_label, "model": args.model, "modules": module_names},
+    ):
+        result = mediator.analyze(problem)
     result.run_label = args.run_label or _git_short_hash()
 
     if args.verbose:

@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
+from src import observability
 from src.llm.client import ClaudeClient
 from src.llm.prompts import (
     MODULE_SYSTEM_PROMPTS,
@@ -449,7 +450,10 @@ class Mediator:
 
     def analyze(self, problem: str) -> FinalAnalysis:
         if self.auto_select:
-            self._select_modules(problem)
+            with observability.span("auto-select"):
+                self._select_modules(problem)
+        else:
+            pass  # modules already initialized in __init__
 
         # Create searcher once; uses module_client for query generation
         searcher = SearchPrePass(self.module_client) if self.search else None
@@ -459,12 +463,13 @@ class Mediator:
         # Round 1: Independent analysis (all modules dispatched in parallel via PTC)
         logger.info("Starting Round 1: Independent Analysis")
         round1_outputs: List[ModuleOutput] = []
-        try:
-            round1_outputs = self.client.run_ptc_round(
-                problem, self.modules, searcher=searcher
-            )
-        except Exception as e:
-            logger.error("Round 1 failed: %s", e)
+        with observability.span("round-1"):
+            try:
+                round1_outputs = self.client.run_ptc_round(
+                    problem, self.modules, searcher=searcher
+                )
+            except Exception as e:
+                logger.error("Round 1 failed: %s", e)
         module_order = {m.name: i for i, m in enumerate(self.modules)}
         round1_outputs.sort(key=lambda o: module_order[o.module_name])
 
@@ -476,13 +481,14 @@ class Mediator:
         round1_names = {o.module_name for o in round1_outputs}
         eligible_modules = [m for m in self.modules if m.name in round1_names]
         round2_outputs: List[ModuleOutput] = []
-        if eligible_modules:
-            try:
-                round2_outputs = self.client.run_ptc_round(
-                    problem, eligible_modules, round1_outputs=round1_dicts, searcher=searcher
-                )
-            except Exception as e:
-                logger.error("Round 2 failed: %s", e)
+        with observability.span("round-2"):
+            if eligible_modules:
+                try:
+                    round2_outputs = self.client.run_ptc_round(
+                        problem, eligible_modules, round1_outputs=round1_dicts, searcher=searcher
+                    )
+                except Exception as e:
+                    logger.error("Round 2 failed: %s", e)
         round2_outputs.sort(key=lambda o: module_order[o.module_name])
 
         t2 = time.perf_counter()
@@ -495,25 +501,26 @@ class Mediator:
         logger.info("Starting Round 3: Synthesis")
 
         synthesis_result = {}
-        if all_outputs:
-            # Pre-consolidate module sources so synthesis can cite real [N] numbers
-            pre_global_sources, pre_remapped_outputs, _ = _consolidate_sources(
-                all_outputs, {}
-            )
-            all_output_dicts = [o.model_dump() for o in pre_remapped_outputs]
-            system, user = build_synthesis_prompt(
-                problem, all_output_dicts,
-                weights=self.weights,
-                deactivated_modules=self.deactivated_modules,
-                raci=self.raci,
-                global_sources=pre_global_sources,
-            )
-            try:
-                synthesis_result = self.client.analyze(system, user)
-            except Exception as e:
-                logger.error("Synthesis failed: %s", e)
-        else:
-            logger.error("All modules failed — no data to synthesize")
+        with observability.span("synthesis"):
+            if all_outputs:
+                # Pre-consolidate module sources so synthesis can cite real [N] numbers
+                pre_global_sources, pre_remapped_outputs, _ = _consolidate_sources(
+                    all_outputs, {}
+                )
+                all_output_dicts = [o.model_dump() for o in pre_remapped_outputs]
+                system, user = build_synthesis_prompt(
+                    problem, all_output_dicts,
+                    weights=self.weights,
+                    deactivated_modules=self.deactivated_modules,
+                    raci=self.raci,
+                    global_sources=pre_global_sources,
+                )
+                try:
+                    synthesis_result = self.client.analyze(system, user)
+                except Exception as e:
+                    logger.error("Synthesis failed: %s", e)
+            else:
+                logger.error("All modules failed — no data to synthesize")
 
         t3 = time.perf_counter()
 
@@ -529,9 +536,10 @@ class Mediator:
         conflict_resolutions: List[ConflictResolution] = []
         if self.deep_research:
             logger.info("Starting Deep Research Round: Conflict & Flag Resolution")
-            conflict_resolutions = self._run_deep_research(
-                problem, conflicts, priority_flags, remapped_outputs, searcher
-            )
+            with observability.span("deep-research"):
+                conflict_resolutions = self._run_deep_research(
+                    problem, conflicts, priority_flags, remapped_outputs, searcher
+                )
             if conflict_resolutions:
                 global_sources, conflict_resolutions = _consolidate_resolution_sources(
                     global_sources, conflict_resolutions

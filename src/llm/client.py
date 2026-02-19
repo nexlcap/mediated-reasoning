@@ -6,6 +6,18 @@ from typing import Dict, List, Optional
 
 import anthropic
 
+
+def _with_otel_ctx(ctx, fn, *args, **kwargs):
+    """Re-attach OTEL context inside a worker thread, then call fn."""
+    if ctx is None:
+        return fn(*args, **kwargs)
+    from opentelemetry import context as otel_context
+    token = otel_context.attach(ctx)
+    try:
+        return fn(*args, **kwargs)
+    finally:
+        otel_context.detach(token)
+
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -153,6 +165,8 @@ class ClaudeClient:
 
             # Execute all tool calls in parallel on our server
             tool_results = []
+            from src import observability
+            current_ctx = observability.get_otel_context()
             with ThreadPoolExecutor(max_workers=len(tool_uses)) as executor:
                 futures = {}
                 for tu in tool_uses:
@@ -161,9 +175,9 @@ class ClaudeClient:
                     if not module:
                         continue
                     if round_num == 1:
-                        f = executor.submit(module.run_round1, problem, searcher)
+                        f = executor.submit(_with_otel_ctx, current_ctx, module.run_round1, problem, searcher)
                     else:
-                        f = executor.submit(module.run_round2, problem, round1_outputs, searcher)
+                        f = executor.submit(_with_otel_ctx, current_ctx, module.run_round2, problem, round1_outputs, searcher)
                     futures[f] = (tu.id, name)
 
                 for f, (tu_id, name) in futures.items():

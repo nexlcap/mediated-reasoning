@@ -95,6 +95,21 @@ python -m src.audit report.json --layer 4     # grounding verification (20% samp
 python -m src.audit report.json --layer 5     # R1→R2 consistency check
 ```
 
+## Observability (Langfuse)
+
+Optional LLM call tracing with cost, latency, and token breakdowns per round.
+
+```bash
+# Install optional deps
+pip install -r requirements-langfuse.txt
+
+# Add to .env
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+LANGFUSE_SECRET_KEY=sk-lf-...
+```
+
+When keys are set, every run creates a trace in your Langfuse dashboard named `mediated-reasoning` with nested spans for `auto-select`, `round-1`, `round-2`, `synthesis`, and `deep-research`. Module generations are auto-captured by OpenTelemetry instrumentation. Without keys the system runs unchanged.
+
 ## Sample Reports
 
 Published reports are available on **[GitHub Pages](https://nexlcap.github.io/mediated-reasoning/)**.
