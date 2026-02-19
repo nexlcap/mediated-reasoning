@@ -492,3 +492,35 @@ The following features are inspired by *"Intelligent AI Delegation"* (Tomašev, 
 **Current behavior:** All modules start with equal credibility. `--weight` is a static, user-supplied knob with no memory across runs.
 
 **Proposed:** Track each module's historical reliability — e.g. how often its flags were validated in synthesis, how often its analysis was contradicted, how specific vs. vague its outputs are — and use that to automatically adjust module influence over time. A module that consistently produces vague or contradicted analysis would get downweighted without the user needing to manually set `--weight`. Requires persistence (local DB or JSON file) to track run history across sessions.
+
+## Token Optimization
+
+Token costs break down as follows (mean, ~8 modules, Tavily enabled):
+
+| Round | Estimated tokens | Driver |
+|-------|-----------------|--------|
+| R1 | ~23k | 8 × (system prompt + search context) |
+| **R2** | **~46k** | 8 × (system prompt + search context + all other modules' full R1 outputs) |
+| R3 synthesis | ~13k | system prompt + all 16 outputs + global sources |
+
+**R2 is the dominant cost** because each module receives every other module's full `analysis` dict as cross-module context. With 8 modules, that is 7 full analysis objects per prompt × 8 prompts = 56 redundant analysis payloads per run.
+
+### 19. Slim R2 Cross-Module Context (Implemented)
+
+**Problem:** `_format_round1_outputs()` serialises the complete `analysis` dict (summary, key_findings, opportunities, risks, and all other fields) for every other module. A module revising its perspective only needs to know *what the other modules concluded* and *what they flagged* — not the full structured breakdown.
+
+**Implementation:** Added `brief=True` parameter to `_format_round1_outputs`. When `brief=True`, only `summary` and `flags` are included per module. `build_round2_prompt` passes `brief=True` for other modules' outputs. The synthesis prompt still receives full outputs because it needs the complete picture to identify conflicts.
+
+**Expected saving:** ~50–60% reduction in R2 cross-module payload → estimated −15k to −20k total input tokens per run (−18–25%).
+
+### 20. Shared Tavily Query Cache (Implemented)
+
+**Problem:** Each module independently generates queries and calls Tavily. Across 8 modules × 2 rounds = 16 `run_for_module` calls, many queries are near-identical (e.g. multiple modules asking about "WebMCP browser support"). Each duplicate query costs one Tavily API call and returns the same results.
+
+**Implementation:** `SearchPrePass` maintains a `_query_cache: Dict[str, List[SearchResult]]` keyed by exact query string. In `_fetch_results`, each query is checked against the cache before calling Tavily. Cache hits return stored results immediately; cache misses store results before returning. The cache lives for the lifetime of the `SearchPrePass` instance (one per `mediator.analyze()` call), so it is shared across all modules and both rounds.
+
+**Expected saving:** Eliminates duplicate Tavily calls. Also reduces Tavily quota consumption and rate-limit exposure. Token savings are indirect (fewer `analyze` calls for query generation if query generation is also cached — but currently only the Tavily fetch is cached, not the LLM query generation step).
+
+### Future: Model Tiering
+
+Use `claude-haiku-4-5` for R1/R2 module calls (cheaper, faster, sufficient for domain-specific structured analysis) and `claude-sonnet-4-6` only for synthesis (where cross-domain reasoning and conflict detection require the stronger model). Estimated saving: ~80% reduction in per-module call cost. Requires validation that Haiku produces comparable structured JSON quality.

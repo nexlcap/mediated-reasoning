@@ -13,6 +13,7 @@ logger = get_logger(__name__)
 class SearchPrePass:
     def __init__(self, client: ClaudeClient):
         self.llm = client
+        self._query_cache: Dict[str, List[SearchResult]] = {}
         api_key = os.getenv("TAVILY_API_KEY")
         self.tavily = None
         if api_key:
@@ -198,28 +199,44 @@ class SearchPrePass:
             return []
 
     def _fetch_results(self, queries: List[str], cap: int = 8) -> Optional[SearchContext]:
-        """Fetch Tavily results for a list of queries, deduplicated by URL."""
+        """Fetch Tavily results for a list of queries, deduplicated by URL.
+
+        Results are cached by query string for the lifetime of this instance so
+        identical queries from different modules or rounds do not trigger
+        redundant Tavily API calls.
+        """
         seen_urls: set = set()
         results: List[SearchResult] = []
         for query in queries:
-            try:
-                response = self.tavily.search(
-                    query=query,
-                    max_results=3,
-                    search_depth="advanced",
-                    include_raw_content=False,
-                )
-                for r in response.get("results", []):
-                    url = r.get("url", "")
-                    if url and url not in seen_urls:
-                        seen_urls.add(url)
-                        results.append(SearchResult(
-                            title=r.get("title", ""),
-                            url=url,
-                            content=r.get("content", r.get("snippet", "")),
-                        ))
-            except Exception as e:
-                logger.warning("Search query '%s' failed: %s", query, e)
+            if query in self._query_cache:
+                cached = self._query_cache[query]
+                logger.debug("Search cache hit: '%s' (%d results)", query, len(cached))
+                query_results = cached
+            else:
+                query_results = []
+                try:
+                    response = self.tavily.search(
+                        query=query,
+                        max_results=3,
+                        search_depth="advanced",
+                        include_raw_content=False,
+                    )
+                    for r in response.get("results", []):
+                        url = r.get("url", "")
+                        if url:
+                            query_results.append(SearchResult(
+                                title=r.get("title", ""),
+                                url=url,
+                                content=r.get("content", r.get("snippet", "")),
+                            ))
+                except Exception as e:
+                    logger.warning("Search query '%s' failed: %s", query, e)
+                self._query_cache[query] = query_results
+
+            for sr in query_results:
+                if sr.url not in seen_urls:
+                    seen_urls.add(sr.url)
+                    results.append(sr)
 
         if not results:
             return None
