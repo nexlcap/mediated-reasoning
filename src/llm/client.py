@@ -14,9 +14,10 @@ DEFAULT_MODEL = "claude-sonnet-4-20250514"
 
 
 class ClaudeClient:
-    def __init__(self, model: str = DEFAULT_MODEL):
+    def __init__(self, model: str = DEFAULT_MODEL, max_tokens: int = 4096):
         self.client = anthropic.Anthropic()
         self.model = model
+        self.max_tokens = max_tokens
         self._usage: Dict[str, int] = defaultdict(int)
 
     def _track(self, key_prefix: str, response) -> None:
@@ -54,7 +55,7 @@ class ClaudeClient:
         try:
             response = self.client.messages.create(
                 model=self.model,
-                max_tokens=4096,
+                max_tokens=self.max_tokens,
                 system=system_prompt,
                 messages=[{"role": "user", "content": user_prompt}],
             )

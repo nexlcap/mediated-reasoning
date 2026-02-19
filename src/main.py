@@ -97,7 +97,7 @@ def main():
     raci = DEFAULT_RACI_MATRIX if args.raci else None
 
     client = ClaudeClient(model=args.model)
-    module_client = ClaudeClient(model=args.module_model) if args.module_model else None
+    module_client = ClaudeClient(model=args.module_model, max_tokens=2048) if args.module_model else None
     mediator = Mediator(client, weights=weights, raci=raci, auto_select=args.auto_select, search=not args.no_search, deep_research=args.deep_research, module_client=module_client)
 
     print(f"\nAnalyzing: {problem}\n")

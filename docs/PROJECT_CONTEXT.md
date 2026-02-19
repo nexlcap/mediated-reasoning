@@ -533,18 +533,35 @@ Use a cheaper/faster model for R1/R2 module calls and `claude-sonnet-4-6` only f
 
 Token tracking is split: `module_analyze_input/output` tracks module-client calls; `synthesis_analyze_input/output` tracks synthesis-client calls.
 
-**Benchmark: Haiku modules vs Sonnet (all), n=5 vs n=10, WebMCP browser standard, with search:**
+**Verbosity problem and two levers to fix it:**
 
-| Metric | Sonnet (ptc) | Haiku modules | Δ |
-|--------|-------------|---------------|---|
-| total_input_tok | 85,247 | 124,849 ± 9,774 | +46% |
-| total_output_tok | 15,982 | 47,453 ± 3,253 | +197% |
-| total_s | 151.7s ± 20.4s | 236.2s ± 44.8s | +56% |
-| modules_completed | 7.0 ± 1.2 | 7.8 ± 0.4 | +11% |
-| sources_survived | 75.3 ± 11.5 | 92.4 ± 8.6 | +23% |
-| flags_red | 3.4 ± 0.5 | 4.6 ± 0.9 | +35% |
-| source_survival_pct | 81% ± 3% | 79% ± 5% | −2% |
+Haiku without constraints generates ~3× more output tokens per module call than Sonnet. Root causes: (1) no per-array item limit in the JSON schema, (2) `max_tokens=4096` gives too much room. Two levers were added:
 
-**Findings:** Haiku module calls are *more* expensive and *slower* for this workload. Haiku generates ~3× more output tokens per module call than Sonnet (44k vs 15k total), hitting the 10k output tokens/minute Haiku rate limit and throttling parallel execution. Quality is comparable or higher (more flags/sources found).
+- **Lever A — `max_tokens` per client**: `ClaudeClient.__init__` accepts `max_tokens: int = 4096`. Module client is created with `max_tokens=2048` when `--module-model` is set. This caps per-call output and reduces Haiku rate-limit exposure.
+- **Lever B — conciseness instruction**: `_module_json_instruction()` appends `"CONCISENESS: Maximum 5 items per array. One sentence per item. Omit minor points."` to every module prompt. Applies to all models; keeps Haiku focused.
 
-**Conclusion:** Model tiering with Haiku provides no cost or speed benefit for this output-token-heavy workload. The `--module-model` flag remains useful for future experimentation with models that have higher output rate limits or lower verbosity.
+**Benchmarks (WebMCP browser standard, with search):**
+
+| Label | n | module_out_tok | total_s | modules_completed |
+|-------|---|----------------|---------|-------------------|
+| Sonnet (ptc) | 10 | ~15k | 151.7s ± 20s | 7.0 ± 1.2 |
+| Haiku (unconstrained) | 5 | 44,771 ± 3,188 | 236.2s ± 44.8s | 7.8 ± 0.4 |
+| Haiku (compact, max_tokens=2048 + conciseness) | 5 | ~22k | ~105s | 7.4 ± 1.1 |
+
+Compact Haiku halves module output tokens vs unconstrained (~22k vs 44k) and cuts wall time from 236s to ~105s. Still ~30% slower than Sonnet due to Haiku's 10k output tokens/min org rate limit.
+
+**Cost math (approximate Anthropic pricing):**
+
+| | Module output tokens | Output price/MTok | Relative cost |
+|---|---|---|---|
+| Sonnet modules | ~15k | $15 | 1× |
+| Haiku compact modules | ~22k | $4 | **0.59×** |
+
+Haiku compact module calls are ~40% cheaper than Sonnet. But the rate-limit penalty makes total runs ~30% slower, so the trade-off only makes sense if cost matters more than latency.
+
+**When Haiku makes sense:**
+- Higher-tier rate limit (50k+ output tokens/min) — speed penalty disappears
+- Fewer modules (3–4 via `--weight`) — output tokens per run stay under the 10k/min limit
+- Batch/async workloads — latency doesn't matter, 40% cost saving is real
+
+**Conclusion:** For interactive use with `--auto-select` (8 modules), Sonnet is faster and more reliable. The `--module-model` flag is worth keeping: compact Haiku is genuinely cheaper per run, and a higher rate limit would make it strictly better.

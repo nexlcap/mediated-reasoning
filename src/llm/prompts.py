@@ -183,6 +183,7 @@ def _module_json_instruction(has_search_context: bool) -> str:
         f'  {sources_field}\n'
         "}\n\n"
         f"{sources_rule}"
+        "\n\nCONCISENESS: Maximum 5 items per array. One sentence per item. Omit minor points."
     )
 
 
