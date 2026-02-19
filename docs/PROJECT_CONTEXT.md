@@ -151,6 +151,22 @@ class AuditSummary(BaseModel):
     layer5_ran: bool                # Whether R1→R2 consistency checker (Layer 5) was run
     layer5_results: List[ConsistencyResult] # Per-module consistency results
 
+class TokenUsage(BaseModel):
+    analyze_input: int              # Input tokens across all client.analyze() calls
+    analyze_output: int             # Output tokens across all client.analyze() calls
+    chat_input: int                 # Input tokens for client.chat() (--interactive mode)
+    chat_output: int
+    ptc_orchestrator_input: int     # Orchestrating Claude tokens in run_ptc_round() — 0 on main branch
+    ptc_orchestrator_output: int
+    total_input: int                # Sum of all input tokens
+    total_output: int               # Sum of all output tokens
+
+class RoundTiming(BaseModel):
+    round1_s: float                 # Wall-clock seconds for Round 1 (perf_counter)
+    round2_s: float                 # Wall-clock seconds for Round 2
+    round3_s: float                 # Wall-clock seconds for synthesis
+    total_s: float                  # End-to-end wall-clock seconds
+
 class FinalAnalysis(BaseModel):
     problem: str
     generated_at: str               # ISO 8601 UTC timestamp set by mediator.analyze()
@@ -169,6 +185,12 @@ class FinalAnalysis(BaseModel):
     deep_research_enabled: bool         # Whether the deep research round ran
     search_context: Optional[SearchContext] # Raw search results from the pre-pass (queries + results)
     audit: Optional[AuditSummary]       # Layers 1–3 populated automatically; layers 4–5 written back by audit CLI
+    run_label: str                      # Tag for metrics comparison (--run-label flag; defaults to git short hash)
+    token_usage: Optional[TokenUsage]   # Per-call-type token breakdown; populated by ClaudeClient._usage accumulator
+    timing: Optional[RoundTiming]       # Wall-clock seconds per round; populated by perf_counter in mediator.analyze()
+    modules_attempted: int              # Number of modules instantiated (len(self.modules))
+    modules_completed: int              # Modules that produced a Round 1 output
+    sources_claimed: int                # Total sources before URL dedup/filter (sum over all module outputs)
 
 class SearchResult(BaseModel):
     title: str                  # Page title
@@ -228,6 +250,9 @@ mediated-reasoning/
 │   │   ├── url_checker.py      # Layer 3 — URL reachability (parallel HEAD/GET)
 │   │   ├── grounding_verifier.py # Layer 4 — LLM fact-checks cited claims (Haiku)
 │   │   └── consistency_checker.py # Layer 5 — R1→R2 new-fact detection (Haiku)
+│   ├── metrics/
+│   │   ├── __init__.py
+│   │   └── __main__.py         # CLI: python -m src.metrics [compare] — cross-run comparison table
 │   └── utils/
 │       ├── __init__.py
 │       ├── logger.py           # Logging
@@ -244,7 +269,9 @@ mediated-reasoning/
 │   ├── test_cli.py            # CLI argument tests
 │   ├── test_module_selection.py # Prompt builders, dynamic module factory
 │   ├── test_exporters.py      # Export format tests
-│   └── test_audit.py          # Audit layers 1 & 2 tests
+│   ├── test_audit.py          # Audit layers 1 & 2 tests
+│   ├── test_ptc.py            # ClaudeClient.run_ptc_round() unit tests (feature/ptc)
+│   └── test_metrics.py        # src.metrics comparison CLI tests
 ├── docs/
 ├── .env.example
 └── requirements.txt
@@ -286,6 +313,7 @@ mediated-reasoning/
 | `--auto-select` | Adaptive module selection — LLM pre-pass picks relevant modules from a pool of 12 |
 | `--no-search` | Skip web search pre-pass; modules cite from training knowledge only (no Tavily call) |
 | `--deep-research` | After synthesis, run targeted web search on high/critical conflicts and red flags to produce evidence-based verdicts and updated recommendations |
+| `--run-label LABEL` | Tag this run for metrics comparison (e.g. `--run-label pre-ptc`). Defaults to the current git short hash. Written to `report.json` as `run_label`. |
 | `--model MODEL` | Claude model to use |
 
 ### Interactive Follow-up Mode (`--interactive`)
@@ -300,6 +328,18 @@ The `--output` flag is a boolean (no filename argument). It calls `export_all()`
 3. Writes `report.md`, `report.json`, and `report.html` into that directory
 
 This ensures every run is preserved and easily comparable.
+
+### Metrics Comparison CLI (`python -m src.metrics`)
+
+After collecting multiple runs with `--output --run-label <label>`, compare them:
+
+```bash
+python -m src.metrics                          # list all runs with labels and paths
+python -m src.metrics compare "webmcp"         # filter by problem slug substring
+python -m src.metrics compare --label pre-ptc ptc  # filter by specific labels
+```
+
+The compare command globs `output/**/report.json` recursively, extracts numeric metrics from each report, groups by `run_label`, and prints a mean ± std table with a `Δ%` column between the first two labels. Metrics covered: token usage per call type, wall-clock seconds per round, module completion, source survival rate, flag/conflict counts, and Layer 3 URL reachability. Large timing improvements (>20% drop) are highlighted with a `←` marker.
 
 ## Design Decisions
 
