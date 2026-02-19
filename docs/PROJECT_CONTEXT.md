@@ -270,7 +270,6 @@ mediated-reasoning/
 │   ├── test_module_selection.py # Prompt builders, dynamic module factory
 │   ├── test_exporters.py      # Export format tests
 │   ├── test_audit.py          # Audit layers 1 & 2 tests
-│   ├── test_ptc.py            # ClaudeClient.run_ptc_round() unit tests (feature/ptc)
 │   └── test_metrics.py        # src.metrics comparison CLI tests
 ├── docs/
 ├── .env.example
