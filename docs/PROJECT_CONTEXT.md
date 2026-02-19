@@ -126,6 +126,7 @@ class UrlCheckResult(BaseModel):
     status: Optional[int]           # HTTP status code, or None if connection error
     error: Optional[str]            # Error message if connection failed
     ok: bool                        # True if status 2xx/3xx and no error
+    bot_blocked: bool = False       # True when status 403/401/429 — page likely exists but blocks crawlers
 
 class GroundingResult(BaseModel):
     verdict: str        # SUPPORTED / PARTIAL / UNSUPPORTED / FETCH_FAILED / UNKNOWN
