@@ -39,3 +39,4 @@ CLI tool using multi-agent mediated reasoning to analyze complex problems from m
 | 23 | DuckDuckGo fallback search — zero-config default; Tavily opt-in via `TAVILY_API_KEY` | Done |
 | 24 | Lightweight run quality gate — score + tier + warnings from structural metrics, no LLM calls | Done |
 | 25 | LiteLLM backend — unified API for multi-provider + local model support (Ollama, OpenAI, Anthropic, etc.) | Done |
+| 26 | Gradio UI for HuggingFace Spaces — public web interface, separate HF Space repo, pip-installable main package | Done |

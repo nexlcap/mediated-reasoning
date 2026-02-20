@@ -38,9 +38,10 @@ DEFAULT_MODEL = "claude-sonnet-4-20250514"
 
 
 class ClaudeClient:
-    def __init__(self, model: str = DEFAULT_MODEL, max_tokens: int = 4096):
+    def __init__(self, model: str = DEFAULT_MODEL, max_tokens: int = 4096, api_key: Optional[str] = None):
         self.model = model
         self.max_tokens = max_tokens
+        self._api_key = api_key or None
         self._usage: Dict[str, int] = defaultdict(int)
 
     def _track(self, key_prefix: str, response) -> None:
@@ -86,6 +87,7 @@ class ClaudeClient:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
+                **({"api_key": self._api_key} if self._api_key else {}),
             )
             self._track("analyze", response)
             text = response.choices[0].message.content
@@ -105,6 +107,7 @@ class ClaudeClient:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
+                **({"api_key": self._api_key} if self._api_key else {}),
             )
             self._track("chat", response)
             return response.choices[0].message.content
@@ -177,6 +180,7 @@ class ClaudeClient:
                 max_tokens=512,
                 messages=messages,
                 tools=tools,
+                **({"api_key": self._api_key} if self._api_key else {}),
             )
             self._track("ptc_orchestrator", response)
 
