@@ -227,6 +227,7 @@ class Mediator:
         search: bool = True,
         deep_research: bool = False,
         module_client: Optional[ClaudeClient] = None,
+        repeat_prompt: bool = True,
     ):
         self.client = client                              # synthesis + auto-select + gap-check
         self.module_client = module_client or client     # module analysis + search queries
@@ -235,6 +236,7 @@ class Mediator:
         self.auto_select = auto_select
         self.search = search
         self.deep_research = deep_research
+        self.repeat_prompt = repeat_prompt
         self.selection_metadata: Optional[SelectionMetadata] = None
 
         if not auto_select:
@@ -256,7 +258,7 @@ class Mediator:
         try:
             # Step 1: Module selection
             system, user = build_module_selection_prompt(problem)
-            selection_result = self.client.analyze(system, user)
+            selection_result = self.client.analyze(system, user, repeat_prompt=self.repeat_prompt)
             selected_names = selection_result.get("selected_modules", [])
             selection_reasoning = selection_result.get("reasoning", "")
 
@@ -271,7 +273,7 @@ class Mediator:
 
             # Step 2: Gap check
             system, user = build_gap_check_prompt(problem, selected_names)
-            gap_result = self.client.analyze(system, user)
+            gap_result = self.client.analyze(system, user, repeat_prompt=self.repeat_prompt)
             gap_reasoning = gap_result.get("reasoning", "")
             raw_ad_hoc = gap_result.get("ad_hoc_modules", [])
 
@@ -516,7 +518,7 @@ class Mediator:
                     global_sources=pre_global_sources,
                 )
                 try:
-                    synthesis_result = self.client.analyze(system, user)
+                    synthesis_result = self.client.analyze(system, user, repeat_prompt=self.repeat_prompt)
                 except Exception as e:
                     logger.error("Synthesis failed: %s", e)
             else:

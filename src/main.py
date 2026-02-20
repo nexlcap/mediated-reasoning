@@ -77,6 +77,7 @@ def main():
     parser.add_argument("--no-search", action="store_true", help="Skip web search pre-pass (disables grounded source fetching via Tavily)")
     parser.add_argument("--deep-research", action="store_true", help="After synthesis, run targeted web search on high/critical conflicts and red flags to produce evidence-based verdicts and updated recommendations")
     parser.add_argument("--run-label", default="", help="Tag for metrics comparison (e.g. 'pre-ptc', 'ptc'). Defaults to git short hash.")
+    parser.add_argument("--no-repeat-prompt", action="store_true", help="Disable prompt repetition for synthesis and auto-select (on by default; arxiv 2512.14982)")
     args = parser.parse_args()
 
     if args.list_modules:
@@ -101,7 +102,7 @@ def main():
 
     client = ClaudeClient(model=args.model)
     module_client = ClaudeClient(model=args.module_model, max_tokens=2048) if args.module_model else None
-    mediator = Mediator(client, weights=weights, raci=raci, auto_select=args.auto_select, search=not args.no_search, deep_research=args.deep_research, module_client=module_client)
+    mediator = Mediator(client, weights=weights, raci=raci, auto_select=args.auto_select, search=not args.no_search, deep_research=args.deep_research, module_client=module_client, repeat_prompt=not args.no_repeat_prompt)
 
     print(f"\nAnalyzing: {problem}\n")
     if args.auto_select:

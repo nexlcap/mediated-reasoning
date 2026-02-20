@@ -35,3 +35,4 @@ CLI tool using multi-agent mediated reasoning to analyze complex problems from m
 | 19 | Slim R2 cross-module context — pass only summary+flags to other modules in Round 2 | Done |
 | 20 | Shared Tavily query cache — deduplicate Tavily calls across modules within a run | Done |
 | 21 | Model tiering (`--module-model`) — separate model for module vs synthesis calls | Done |
+| 22 | Prompt repetition for synthesis + auto-select (on by default, `--no-repeat-prompt` to disable, arxiv 2512.14982) | Done |

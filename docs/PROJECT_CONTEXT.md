@@ -326,6 +326,7 @@ mediated-reasoning/
 | `--model MODEL` | Claude model for synthesis, auto-select, gap-check, and PTC orchestration (default: `claude-sonnet-4-20250514`) |
 | `--module-model MODEL` | Claude model for R1/R2 module analysis calls (default: same as `--model`). Use e.g. `claude-haiku-4-5-20251001` for tiered cost testing |
 | `--run-label LABEL` | Tag this run for metrics comparison (e.g. `pre-ptc`, `ptc`). Defaults to the current git short hash |
+| `--no-repeat-prompt` | Disable prompt repetition for synthesis and auto-select calls. Repetition is on by default (arxiv 2512.14982): doubles user-turn tokens so early tokens gain attention visibility over later schema/instructions. Module R1/R2 calls are never repeated. Benchmarked: +7.4% input tokens, +11% source survival rate, source survival 75%→81% |
 
 ### Interactive Follow-up Mode (`--interactive`)
 

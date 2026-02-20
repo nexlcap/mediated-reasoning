@@ -62,7 +62,9 @@ class ClaudeClient:
         ]
         return {k: self._usage[k] for k in keys}
 
-    def analyze(self, system_prompt: str, user_prompt: str) -> Dict:
+    def analyze(self, system_prompt: str, user_prompt: str, repeat_prompt: bool = False) -> Dict:
+        if repeat_prompt:
+            user_prompt = user_prompt + "\n\n" + user_prompt
         logger.debug("Sending request to %s", self.model)
         try:
             response = self.client.messages.create(
