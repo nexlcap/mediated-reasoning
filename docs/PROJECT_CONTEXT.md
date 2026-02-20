@@ -501,6 +501,39 @@ Trace: "mediated-reasoning" [input=problem, metadata={run_label, model, modules}
 
 **Thread context propagation:** `run_ptc_round()` dispatches module calls via `ThreadPoolExecutor`. OTEL context (the active span) does not propagate to worker threads automatically. Before submitting work, `observability.get_otel_context()` captures the current context; `_with_otel_ctx(ctx, fn, ...)` re-attaches it inside each worker using `otel_context.attach(token)` / `detach(token)`. This ensures module generations are correctly nested under their round span rather than appearing as disconnected root spans.
 
+### Why repeat synthesis and auto-select prompts by default?
+
+In causal language models, attention is unidirectional: each token can only attend to tokens that appear *before* it in the sequence. A synthesis prompt is structured as:
+
+```
+[module analyses …4–5K tokens…] [JSON schema + output instructions ~500 tokens]
+```
+
+The module analyses (the bulk of the input) are processed before the model sees the JSON schema. By the time the model reads the schema, it cannot revisit the analyses with full schema-awareness. The schema tokens, however, *can* attend to the analyses. This asymmetry means the output format often has more influence over the response than the substantive content.
+
+**Prompt repetition** (arxiv 2512.14982) fixes this by appending the entire user prompt a second time:
+
+```
+[module analyses][schema][module analyses][schema]
+```
+
+On the second pass, every analysis token attends to all prior tokens — including the schema from the first pass. The model effectively "re-reads" the context knowing exactly what structure it must produce. The paper reports improvements on 47/70 benchmarks with zero regressions; the technique adds only prefill tokens (no extra generation required).
+
+Applied here to **synthesis** (~4–6K user tokens, largest single call) and **auto-select/gap-check** (~750–1200 tokens each). Module R1/R2 calls are excluded — doubling already-large R2 prompts (~6K × up to 8 modules) would create significant rate-limit exposure with lower expected gain since module calls have simpler, more regular schemas.
+
+**Benchmark results** (fixed 3-module runs, single comparison):
+
+| Metric | baseline | `--repeat-prompt` | Δ |
+|--------|----------|-------------------|---|
+| total_input_tok | 35,318 | 37,920 | +7.4% |
+| total_output_tok | 6,633 | 7,182 | +8.3% |
+| sources_survived | 27 | 30 | +11.1% |
+| source_survival_pct | 75% | 81% | +8pp |
+| flags_red/yellow | unchanged | unchanged | = |
+| conflicts_total | unchanged | unchanged | = |
+
+The +11% source survival improvement (the model cites more real, verifiable URLs rather than hallucinated ones) at +7.4% token cost is the primary quality signal. The feature is on by default; use `--no-repeat-prompt` to disable.
+
 ### Resolved questions
 - **Sequential vs parallel execution within a round:** Modules run in parallel within each round. R1 and R2 use PTC (`run_ptc_round()`); deep research uses `ThreadPoolExecutor` directly. Both approaches dispatch all work simultaneously and collect results as they complete.
 
