@@ -10,7 +10,7 @@ Three rounds of structured reasoning:
 2. **Round 2 — Informed Revision:** Modules see each other's Round 1 outputs and revise their analysis.
 3. **Round 3 — Synthesis:** The mediator identifies conflicts between modules, flags critical issues (red/yellow/green), and generates final recommendations.
 
-Modules run in parallel within each round via programmatic tool calling (PTC). A Tavily web search pre-pass grounds each module's analysis in real, cited sources.
+Modules run in parallel within each round via programmatic tool calling (PTC). A web search pre-pass grounds each module's analysis in real, cited sources (DuckDuckGo by default — no API key required; Tavily opt-in for higher quality).
 
 ## Setup
 
@@ -20,7 +20,11 @@ conda activate mediated-reasoning
 pip install -r requirements.txt
 
 cp .env.example .env
-# Add ANTHROPIC_API_KEY and TAVILY_API_KEY to .env
+# Add ANTHROPIC_API_KEY to .env (web search works out of the box via DuckDuckGo)
+
+# Optional: Tavily for higher-quality search results
+# pip install -r requirements-tavily.txt
+# Add TAVILY_API_KEY to .env
 ```
 
 ## Usage
