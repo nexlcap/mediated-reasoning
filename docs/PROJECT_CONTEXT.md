@@ -398,6 +398,20 @@ Without real sources, every module invents plausible-sounding citations from tra
 
 **Graceful degradation:** If neither backend is available, or any search call fails, that module's search is silently skipped and the module falls back to training-knowledge citations. `--no-search` disables all search explicitly.
 
+**Benchmark — DuckDuckGo vs Tavily vs no-search** (fixed 3-module runs, single comparison, same problem):
+
+| Metric | no-search | DuckDuckGo | Tavily |
+|--------|-----------|------------|--------|
+| sources_claimed | 36 | 36 | 44 |
+| sources_survived | 27 | 27 | 37 |
+| source_survival_pct | 75% | 75% | 84% |
+| l3_ok_pct (live URLs) | 93% | 82% | 86% |
+| flags_green | 1 | 2 | 3 |
+| round1_s | 64s | 36s | 52s |
+| total_s | 120s | 95s | 123s |
+
+DDG produces the same source count and survival rate as no-search (training citations happen to match in volume), but adds real URLs and one more green flag. Tavily fetches more sources (+22% claimed, +37% survived), higher survival rate (+9pp), and one more green flag again — the `search_depth="advanced"` processing accounts for the quality gap and the extra latency. DDG's lower L3 URL rate (82% vs 86%) reflects some bot-blocked or paywalled pages in its results, handled by the existing `bot_blocked` distinction. Flags/conflicts structure is identical across all three backends.
+
 ### Why a post-synthesis deep research round (`--deep-research`)?
 After synthesis, the framework has identified conflicts and red flags but no mechanism to actually *resolve* them with evidence. The deep research round (`--deep-research`) addresses this: for every `high`/`critical` severity conflict and every `red:` priority flag not already covered by a conflict, the mediator runs a targeted research task in parallel:
 
