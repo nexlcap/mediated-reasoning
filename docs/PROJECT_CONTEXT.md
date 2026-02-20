@@ -170,6 +170,7 @@ class FinalAnalysis(BaseModel):
     deep_research_enabled: bool         # Whether the deep research round ran
     search_context: Optional[SearchContext] # Raw search results from the pre-pass (queries + results)
     audit: Optional[AuditSummary]       # Layers 1–3 populated automatically; layers 4–5 written back by audit CLI
+    quality: Optional[RunQuality]       # Structural quality score — populated by mediator after every run
     run_label: str = ""                 # Tag for metrics comparison; defaults to git short hash
     module_model: str = ""              # Model used for module calls when --module-model is set; empty = same as synthesis model
     token_usage: Optional[TokenUsage] = None  # Per-call-type token counts accumulated across the run
@@ -211,6 +212,11 @@ class RoundTiming(BaseModel):
     round2_s: float = 0.0       # wall-clock seconds for Round 2 (all modules)
     round3_s: float = 0.0       # wall-clock seconds for synthesis
     total_s: float = 0.0        # end-to-end wall-clock time
+
+class RunQuality(BaseModel):
+    score: float                # 0.0–1.0 composite quality score
+    tier: str                   # "good" (≥0.8) | "degraded" (≥0.5) | "poor" (<0.5)
+    warnings: List[str]         # human-readable reasons for any deductions
 
 class SelectionMetadata(BaseModel):
     auto_selected: bool         # True when --auto-select was used
@@ -256,7 +262,8 @@ mediated-reasoning/
 │   │   ├── output_validator.py # Layer 2 — citation integrity validator
 │   │   ├── url_checker.py      # Layer 3 — URL reachability (parallel HEAD/GET)
 │   │   ├── grounding_verifier.py # Layer 4 — LLM fact-checks cited claims (Haiku)
-│   │   └── consistency_checker.py # Layer 5 — R1→R2 new-fact detection (Haiku)
+│   │   ├── consistency_checker.py # Layer 5 — R1→R2 new-fact detection (Haiku)
+│   │   └── quality_gate.py     # Run quality score — structural metrics, no LLM calls
 │   ├── metrics/
 │   │   ├── __init__.py
 │   │   └── __main__.py         # Comparison CLI: `python -m src.metrics compare`
@@ -550,6 +557,26 @@ Applied here to **synthesis** (~4–6K user tokens, largest single call) and **a
 | conflicts_total | unchanged | unchanged | = |
 
 The +11% source survival improvement (the model cites more real, verifiable URLs rather than hallucinated ones) at +7.4% token cost is the primary quality signal. The feature is on by default; use `--no-repeat-prompt` to disable.
+
+### Why a structural quality gate instead of an LLM self-assessment?
+
+After a run completes, the user has no signal about whether that run is trustworthy — a run with 2 hallucinated sources and 4 red flags looks identical to one with 30 real sources and 1 yellow flag. The quality gate addresses this by computing a score from metrics that are already available, deterministic, and already proven to correlate with output quality across benchmarks.
+
+**Why not ask the LLM to rate its own output?** LLM self-assessment is unreliable for the same reason confidence scores are: models are miscalibrated and can be confidently wrong. A structural signal derived from objective facts (did sources survive URL validation? did modules complete?) is more trustworthy than a model's introspective rating.
+
+**Scoring logic** (`src/audit/quality_gate.py` — no LLM calls, pure metrics):
+
+| Signal | Condition | Penalty |
+|--------|-----------|---------|
+| Module failures | per failed module | −0.30 each |
+| Source survival | <50% of claimed sources had real URLs | −0.30 |
+| Source survival | <70% | −0.10 |
+| Grounding depth | <5 sources survived | −0.20 |
+| Critical flag density | ≥4 red flags | −0.10 |
+
+Tiers: **good** (≥0.8), **degraded** (≥0.5), **poor** (<0.5). Thresholds are derived from observed benchmark data where good runs consistently show 75–84% source survival and 27–37 survived sources.
+
+**Integration point:** called at the end of `mediator.analyze()` after all consolidation is done — `result.quality = evaluate(result)` — so `RunQuality` is always populated before the result reaches the caller. Degraded/poor tiers emit a logger warning. The formatter prints the tier in color at the bottom of every output. The gate does not block or re-run — a degraded run is still informative, it just tells the user *why* to calibrate their confidence accordingly.
 
 ### Resolved questions
 - **Sequential vs parallel execution within a round:** Modules run in parallel within each round. R1 and R2 use PTC (`run_ptc_round()`); deep research uses `ThreadPoolExecutor` directly. Both approaches dispatch all work simultaneously and collect results as they complete.
