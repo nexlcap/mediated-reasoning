@@ -165,7 +165,7 @@ class FinalAnalysis(BaseModel):
     raci_matrix: Dict[str, Dict[str, Any]] # RACI matrix used for synthesis conflict resolution
     selection_metadata: Optional[SelectionMetadata] # Populated when --auto-select is used
     weights: Dict[str, float]           # Module weights as passed to the mediator (empty = all defaults)
-    search_enabled: bool                # Whether Tavily web search was active for this run
+    search_enabled: bool                # Whether web search was active for this run (DuckDuckGo or Tavily)
     conflict_resolutions: List[ConflictResolution] # Populated when --deep-research is used
     deep_research_enabled: bool         # Whether the deep research round ran
     search_context: Optional[SearchContext] # Raw search results from the pre-pass (queries + results)
@@ -181,7 +181,7 @@ class FinalAnalysis(BaseModel):
 class SearchResult(BaseModel):
     title: str                  # Page title
     url: str                    # Canonical URL (used for deduplication)
-    content: str                # Snippet/summary from Tavily
+    content: str                # Snippet/summary from the search backend
 
 class SearchContext(BaseModel):
     queries: List[str]          # LLM-generated search queries
@@ -240,7 +240,7 @@ mediated-reasoning/
 │   │   └── scalability_module.py # Growth/scaling (pool)
 │   ├── search/
 │   │   ├── __init__.py
-│   │   └── searcher.py         # SearchPrePass — query gen + Tavily fetch
+│   │   └── searcher.py         # SearchPrePass — query gen + search fetch (DDG or Tavily)
 │   ├── llm/
 │   │   ├── __init__.py
 │   │   ├── client.py           # LLM API wrapper (Claude)
@@ -321,7 +321,7 @@ mediated-reasoning/
 | `--list-modules` | List available modules and exit |
 | `--raci` | Use RACI matrix for conflict resolution in synthesis |
 | `--auto-select` | Adaptive module selection — LLM pre-pass picks relevant modules from a pool of 12 |
-| `--no-search` | Skip web search pre-pass; modules cite from training knowledge only (no Tavily call) |
+| `--no-search` | Skip web search pre-pass; modules cite from training knowledge only |
 | `--deep-research` | After synthesis, run targeted web search on high/critical conflicts and red flags to produce evidence-based verdicts and updated recommendations |
 | `--model MODEL` | Claude model for synthesis, auto-select, gap-check, and PTC orchestration (default: `claude-sonnet-4-20250514`) |
 | `--module-model MODEL` | Claude model for R1/R2 module analysis calls (default: same as `--model`). Use e.g. `claude-haiku-4-5-20251001` for tiered cost testing |
@@ -388,21 +388,23 @@ Without real sources, every module invents plausible-sounding citations from tra
 **The approach:** Each module runs its own web search in both Round 1 and Round 2, rather than sharing a single global pre-pass. `SearchPrePass.run_for_module()` is called per module per round:
 
 - **Query generation:** The LLM generates 3–4 queries using the module's system prompt as a domain hint, so a legal module generates queries about regulatory frameworks while a market module generates queries about market size data. In Round 2, the module's own Round 1 key findings are also included so the search fetches supporting evidence and counter-arguments for what was already found.
-- **Fetching:** Tavily returns clean summaries and canonical URLs (designed for LLM grounding, not raw HTML). Results are capped at 8 per module per round and deduplicated by URL.
+- **Fetching:** Results are capped at 8 per module per round and deduplicated by URL. Tavily (`search_depth="advanced"`) returns richer content; DuckDuckGo returns shorter snippets but requires no account or API key.
 - **Injection:** Results are formatted as a numbered `[N] Title — URL\n    content` block and injected into the module's prompt. Modules are explicitly instructed to cite from those entries and copy the full URL into the sources array.
 
 **Source consolidation:** Each module produces local source indices [1]–[N]. After all rounds complete, `_consolidate_sources()` merges all module sources into a global deduplicated list (by URL first, then text), remaps all inline citations to global indices, and clears per-module source lists. Before synthesis (Round 3), this global list is pre-built and injected into the synthesis prompt with a `CRITICAL` instruction to cite only from it — preventing synthesis from inventing new sources beyond what modules actually found.
 
-**Graceful degradation:** If `TAVILY_API_KEY` is missing, the package is not installed, or any Tavily call fails, that module's search is silently skipped and the module falls back to training-knowledge citations. `--no-search` disables all search explicitly.
+**Search backend priority:** DuckDuckGo is the zero-config default (no API key, no account, ships in `requirements.txt`). If `TAVILY_API_KEY` is set and `tavily-python` is installed (`pip install -r requirements-tavily.txt`), Tavily is used instead for higher-quality results. Resolved once at `SearchPrePass.__init__` time.
+
+**Graceful degradation:** If neither backend is available, or any search call fails, that module's search is silently skipped and the module falls back to training-knowledge citations. `--no-search` disables all search explicitly.
 
 ### Why a post-synthesis deep research round (`--deep-research`)?
 After synthesis, the framework has identified conflicts and red flags but no mechanism to actually *resolve* them with evidence. The deep research round (`--deep-research`) addresses this: for every `high`/`critical` severity conflict and every `red:` priority flag not already covered by a conflict, the mediator runs a targeted research task in parallel:
 
 1. **Query generation** — Claude generates 3–4 queries specifically aimed at resolving that conflict (e.g. "WebMCP API DevTrial stability guarantees" for an API-stability conflict)
-2. **Evidence fetch** — Tavily returns fresh, current results
+2. **Evidence fetch** — the configured search backend (DuckDuckGo or Tavily) returns fresh, current results
 3. **Resolution LLM call** — receives the conflict description, both module positions, and fresh evidence; produces a `verdict` (which position evidence supports) and an `updated_recommendation` (more specific than the synthesis-level recommendations)
 
-Resolution sources are consolidated into the global source list using the same URL-deduplication logic as module sources. The mediator handles this itself (not delegating back to modules) because conflicts are cross-domain by definition — no single domain module "owns" a cross-module disagreement. `--deep-research` is opt-in because each conflict triggers ~5 additional API calls (1 query gen + 3–4 Tavily fetches + 1 resolution LLM call).
+Resolution sources are consolidated into the global source list using the same URL-deduplication logic as module sources. The mediator handles this itself (not delegating back to modules) because conflicts are cross-domain by definition — no single domain module "owns" a cross-module disagreement. `--deep-research` is opt-in because each conflict triggers ~5 additional API calls (1 query gen + 3–4 search fetches + 1 resolution LLM call).
 
 ### Hallucination mitigations
 Several layers prevent LLM-fabricated sources and unsupported claims from appearing in the output:
@@ -592,13 +594,13 @@ Token costs break down as follows (mean, ~8 modules, Tavily enabled):
 
 **Expected saving:** ~50–60% reduction in R2 cross-module payload → estimated −15k to −20k total input tokens per run (−18–25%).
 
-### 20. Shared Tavily Query Cache (Implemented)
+### 20. Shared Search Query Cache (Implemented)
 
-**Problem:** Each module independently generates queries and calls Tavily. Across 8 modules × 2 rounds = 16 `run_for_module` calls, many queries are near-identical (e.g. multiple modules asking about "WebMCP browser support"). Each duplicate query costs one Tavily API call and returns the same results.
+**Problem:** Each module independently generates queries and fetches results. Across 8 modules × 2 rounds = 16 `run_for_module` calls, many queries are near-identical (e.g. multiple modules asking about "WebMCP browser support"). Each duplicate query costs one search API call and returns the same results.
 
-**Implementation:** `SearchPrePass` maintains a `_query_cache: Dict[str, List[SearchResult]]` keyed by exact query string. In `_fetch_results`, each query is checked against the cache before calling Tavily. Cache hits return stored results immediately; cache misses store results before returning. The cache lives for the lifetime of the `SearchPrePass` instance (one per `mediator.analyze()` call), so it is shared across all modules and both rounds.
+**Implementation:** `SearchPrePass` maintains a `_query_cache: Dict[str, List[SearchResult]]` keyed by exact query string. In `_fetch_results`, each query is checked against the cache before calling the search backend. Cache hits return stored results immediately; cache misses store results before returning. The cache lives for the lifetime of the `SearchPrePass` instance (one per `mediator.analyze()` call), so it is shared across all modules and both rounds.
 
-**Expected saving:** Eliminates duplicate Tavily calls. Also reduces Tavily quota consumption and rate-limit exposure. Token savings are indirect (fewer `analyze` calls for query generation if query generation is also cached — but currently only the Tavily fetch is cached, not the LLM query generation step).
+**Expected saving:** Eliminates duplicate search calls regardless of backend. Also reduces Tavily quota consumption when Tavily is in use. Token savings are indirect (fewer `analyze` calls for query generation if query generation is also cached — but currently only the search fetch is cached, not the LLM query generation step).
 
 ### 21. Model Tiering — `--module-model` flag (Implemented)
 

@@ -36,3 +36,4 @@ CLI tool using multi-agent mediated reasoning to analyze complex problems from m
 | 20 | Shared Tavily query cache — deduplicate Tavily calls across modules within a run | Done |
 | 21 | Model tiering (`--module-model`) — separate model for module vs synthesis calls | Done |
 | 22 | Prompt repetition for synthesis + auto-select (on by default, `--no-repeat-prompt` to disable, arxiv 2512.14982) | Done |
+| 23 | DuckDuckGo fallback search — zero-config default; Tavily opt-in via `TAVILY_API_KEY` | Done |
