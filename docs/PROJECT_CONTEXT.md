@@ -294,11 +294,12 @@ mediated-reasoning/
   - `pydantic` — Data validation and schemas
   - `python-dotenv` — Environment variable management
   - `pytest` — Testing
-  - `tavily-python` — Web search API client for grounded source pre-pass
+  - `duckduckgo-search` — zero-config web search backend (no API key required); default search backend
   - `httpx` — HTTP client for URL reachability checks and source page fetching (audit layers 3 & 4)
-- **Optional dependencies** (`requirements-langfuse.txt` — not installed by default):
-  - `langfuse>=3.0.0` — hosted LLM observability dashboard (traces, cost, latency)
-  - `opentelemetry-instrumentation-anthropic` — auto-instruments `anthropic.messages.create()` calls as OTEL spans
+- **Optional dependencies** (not installed by default):
+  - `tavily-python` (`requirements-tavily.txt`) — higher-quality search via Tavily API; activated automatically when `TAVILY_API_KEY` is set
+  - `langfuse>=3.0.0` (`requirements-langfuse.txt`) — hosted LLM observability dashboard (traces, cost, latency)
+  - `opentelemetry-instrumentation-anthropic` (`requirements-langfuse.txt`) — auto-instruments `anthropic.messages.create()` calls as OTEL spans
 
 ## Use Cases
 
