@@ -1,6 +1,7 @@
 """Unit tests for ClaudeClient.run_ptc_round()."""
+import json
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from src.llm.client import ClaudeClient
 from src.models.schemas import ModuleOutput
@@ -32,52 +33,54 @@ def _sample_output(name, round_num):
     )
 
 
-def _make_tool_use_block(tu_id, module_name):
-    block = MagicMock()
-    block.type = "tool_use"
-    block.id = tu_id
-    block.input = {"module_name": module_name}
-    return block
+def _make_tool_call(tc_id, module_name):
+    """Build an OpenAI-style tool_call mock (as returned by LiteLLM)."""
+    tc = MagicMock()
+    tc.id = tc_id
+    tc.function.name = "analyze_module"
+    tc.function.arguments = json.dumps({"module_name": module_name})
+    return tc
 
 
-def _make_tool_use_response(tu_blocks):
+def _make_tool_response(tool_calls):
+    """Build an OpenAI-style response mock with tool calls."""
     response = MagicMock()
-    response.content = tu_blocks
-    response.container = None
+    response.choices[0].message.tool_calls = tool_calls
+    response.choices[0].message.content = ""
+    response.usage.prompt_tokens = 100
+    response.usage.completion_tokens = 50
     return response
 
 
 def _make_end_turn_response():
+    """Build an OpenAI-style response mock with no tool calls (end of loop)."""
     response = MagicMock()
-    text_block = MagicMock()
-    text_block.type = "text"
-    response.content = [text_block]
-    response.container = None
+    response.choices[0].message.tool_calls = []
+    response.choices[0].message.content = "Done."
+    response.usage.prompt_tokens = 50
+    response.usage.completion_tokens = 10
     return response
 
 
 class TestRunPtcRound:
     @pytest.fixture
     def ptc_client(self):
-        """ClaudeClient with mocked Anthropic SDK internals."""
-        client = ClaudeClient()
-        client.client = MagicMock()  # replace the anthropic.Anthropic() instance
-        return client
+        """ClaudeClient for PTC tests (litellm.completion will be patched per test)."""
+        return ClaudeClient()
 
     def test_happy_path_round1(self, ptc_client):
-        """All modules invoked in parallel via tool_use; results captured in order."""
+        """All modules invoked in parallel via tool_calls; results captured in order."""
         m1 = _make_module("market", round1_output=_sample_output("market", 1))
         m2 = _make_module("tech", round1_output=_sample_output("tech", 1))
 
-        tu1 = _make_tool_use_block("tu_1", "market")
-        tu2 = _make_tool_use_block("tu_2", "tech")
+        tc1 = _make_tool_call("tc_1", "market")
+        tc2 = _make_tool_call("tc_2", "tech")
 
-        ptc_client.client.messages.create.side_effect = [
-            _make_tool_use_response([tu1, tu2]),
+        with patch("src.llm.client.litellm.completion", side_effect=[
+            _make_tool_response([tc1, tc2]),
             _make_end_turn_response(),
-        ]
-
-        results = ptc_client.run_ptc_round("test problem", [m1, m2])
+        ]):
+            results = ptc_client.run_ptc_round("test problem", [m1, m2])
 
         assert len(results) == 2
         assert results[0].module_name == "market"
@@ -90,24 +93,22 @@ class TestRunPtcRound:
         m1 = _make_module("market", round1_output=_sample_output("market", 1))
         m2 = _make_module("tech", error=Exception("API timeout"))
 
-        tu1 = _make_tool_use_block("tu_1", "market")
-        tu2 = _make_tool_use_block("tu_2", "tech")
+        tc1 = _make_tool_call("tc_1", "market")
+        tc2 = _make_tool_call("tc_2", "tech")
 
-        ptc_client.client.messages.create.side_effect = [
-            _make_tool_use_response([tu1, tu2]),
+        with patch("src.llm.client.litellm.completion", side_effect=[
+            _make_tool_response([tc1, tc2]),
             _make_end_turn_response(),
-        ]
-
-        results = ptc_client.run_ptc_round("test problem", [m1, m2])
+        ]):
+            results = ptc_client.run_ptc_round("test problem", [m1, m2])
 
         assert len(results) == 1
         assert results[0].module_name == "market"
 
     def test_empty_module_list(self, ptc_client):
         """Empty module list: orchestrator returns end_turn immediately, result is []."""
-        ptc_client.client.messages.create.return_value = _make_end_turn_response()
-
-        results = ptc_client.run_ptc_round("test problem", [])
+        with patch("src.llm.client.litellm.completion", return_value=_make_end_turn_response()):
+            results = ptc_client.run_ptc_round("test problem", [])
 
         assert results == []
 
@@ -116,14 +117,13 @@ class TestRunPtcRound:
         m1 = _make_module("market", round2_output=_sample_output("market", 2))
         round1_dicts = [{"module_name": "market", "round": 1, "analysis": {}, "flags": [], "revised": False, "sources": []}]
 
-        tu1 = _make_tool_use_block("tu_1", "market")
+        tc1 = _make_tool_call("tc_1", "market")
 
-        ptc_client.client.messages.create.side_effect = [
-            _make_tool_use_response([tu1]),
+        with patch("src.llm.client.litellm.completion", side_effect=[
+            _make_tool_response([tc1]),
             _make_end_turn_response(),
-        ]
-
-        results = ptc_client.run_ptc_round("test problem", [m1], round1_outputs=round1_dicts)
+        ]):
+            results = ptc_client.run_ptc_round("test problem", [m1], round1_outputs=round1_dicts)
 
         assert len(results) == 1
         assert results[0].module_name == "market"

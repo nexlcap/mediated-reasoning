@@ -60,8 +60,8 @@ def main():
         description="Mediated Reasoning System - Multi-perspective problem analysis"
     )
     parser.add_argument("problem", nargs="?", help="The problem or idea to analyze")
-    parser.add_argument("--model", default=DEFAULT_MODEL, help=f"Claude model to use for synthesis (default: {DEFAULT_MODEL})")
-    parser.add_argument("--module-model", default="", help="Model for module analysis calls (default: same as --model). Use e.g. claude-haiku-4-5-20251001 for cheaper/faster module calls.")
+    parser.add_argument("--model", default=DEFAULT_MODEL, help=f"LiteLLM model string for synthesis (default: {DEFAULT_MODEL}). Examples: gpt-4o, ollama/llama3.3, together_ai/meta-llama/Llama-3-70b-chat-hf")
+    parser.add_argument("--module-model", default="", help="LiteLLM model string for module analysis calls (default: same as --model). Examples: claude-haiku-4-5-20251001, gpt-4o-mini, ollama/phi4")
     parser.add_argument("--verbose", action="store_true", help="Show detailed round-by-round output")
     parser.add_argument("--report", action="store_true", help="Generate a comprehensive detailed report")
     parser.add_argument("--customer-report", action="store_true", help="Generate a customer-facing report (no internal details)")

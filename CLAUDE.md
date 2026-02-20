@@ -38,4 +38,4 @@ CLI tool using multi-agent mediated reasoning to analyze complex problems from m
 | 22 | Prompt repetition for synthesis + auto-select (on by default, `--no-repeat-prompt` to disable, arxiv 2512.14982) | Done |
 | 23 | DuckDuckGo fallback search — zero-config default; Tavily opt-in via `TAVILY_API_KEY` | Done |
 | 24 | Lightweight run quality gate — score + tier + warnings from structural metrics, no LLM calls | Done |
-| 25 | LiteLLM backend — unified API for multi-provider + local model support (Ollama, OpenAI, Anthropic, etc.) | Open |
+| 25 | LiteLLM backend — unified API for multi-provider + local model support (Ollama, OpenAI, Anthropic, etc.) | Done |
