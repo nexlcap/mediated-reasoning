@@ -20,7 +20,8 @@ conda activate mediated-reasoning
 pip install -r requirements.txt
 
 cp .env.example .env
-# Add ANTHROPIC_API_KEY to .env (web search works out of the box via DuckDuckGo)
+# Add ANTHROPIC_API_KEY to .env for the default Claude model
+# For other providers, see .env.example — OpenAI, Together AI, or Ollama (local, no key)
 
 # Optional: Tavily for higher-quality search results
 # pip install -r requirements-tavily.txt
@@ -57,8 +58,12 @@ python -m src.main "your problem" --interactive
 # Adjust module weights (0 deactivates a module)
 python -m src.main "your problem" --weight legal=2 --weight cost=0
 
-# Use a separate model for module calls (e.g. for cost testing)
+# Use a separate model for module calls (cheaper/faster)
 python -m src.main "your problem" --module-model claude-haiku-4-5-20251001
+
+# Use any LiteLLM-supported provider (OpenAI, local Ollama, etc.)
+python -m src.main "your problem" --model gpt-4o --module-model gpt-4o-mini
+python -m src.main "your problem" --model ollama/llama3.3  # fully local, no API key
 
 # Tag run for metrics comparison
 python -m src.main "your problem" --output --run-label baseline

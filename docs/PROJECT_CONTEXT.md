@@ -249,7 +249,7 @@ mediated-reasoning/
 │   │   └── searcher.py         # SearchPrePass — query gen + search fetch (DDG or Tavily)
 │   ├── llm/
 │   │   ├── __init__.py
-│   │   ├── client.py           # LLM API wrapper (Claude)
+│   │   ├── client.py           # LiteLLM API wrapper (multi-provider: Anthropic, OpenAI, Ollama, …)
 │   │   └── prompts.py          # Prompt templates per module
 │   ├── models/
 │   │   ├── __init__.py
@@ -296,10 +296,10 @@ mediated-reasoning/
 
 - **Language:** Python 3.11+
 - **Environment:** Conda
-- **LLM:** Claude (Anthropic API)
-- **Dependencies:** `anthropic>=0.72.0`
+- **LLM:** Any LiteLLM-supported provider — Anthropic (default), OpenAI, Ollama (local), Together AI, etc.
 - **Libraries:**
-  - `anthropic` — API client
+  - `litellm` — unified LLM API layer; routes to any provider via OpenAI-compatible interface
+  - `anthropic` — kept for Langfuse OTEL instrumentation; not used for direct API calls
   - `pydantic` — Data validation and schemas
   - `python-dotenv` — Environment variable management
   - `pytest` — Testing
@@ -333,8 +333,8 @@ mediated-reasoning/
 | `--auto-select` | Adaptive module selection — LLM pre-pass picks relevant modules from a pool of 12 |
 | `--no-search` | Skip web search pre-pass; modules cite from training knowledge only |
 | `--deep-research` | After synthesis, run targeted web search on high/critical conflicts and red flags to produce evidence-based verdicts and updated recommendations |
-| `--model MODEL` | Claude model for synthesis, auto-select, gap-check, and PTC orchestration (default: `claude-sonnet-4-20250514`) |
-| `--module-model MODEL` | Claude model for R1/R2 module analysis calls (default: same as `--model`). Use e.g. `claude-haiku-4-5-20251001` for tiered cost testing |
+| `--model MODEL` | LiteLLM model string for synthesis, auto-select, gap-check, and PTC orchestration (default: `claude-sonnet-4-20250514`). Examples: `gpt-4o`, `ollama/llama3.3`, `together_ai/meta-llama/Llama-3-70b-chat-hf` |
+| `--module-model MODEL` | LiteLLM model string for R1/R2 module analysis calls (default: same as `--model`). Examples: `claude-haiku-4-5-20251001`, `gpt-4o-mini`, `ollama/phi4` |
 | `--run-label LABEL` | Tag this run for metrics comparison (e.g. `pre-ptc`, `ptc`). Defaults to the current git short hash |
 | `--no-repeat-prompt` | Disable prompt repetition for synthesis and auto-select calls. Repetition is on by default (arxiv 2512.14982): doubles user-turn tokens so early tokens gain attention visibility over later schema/instructions. Module R1/R2 calls are never repeated. Benchmarked: +7.4% input tokens, +11% source survival rate, source survival 75%→81% |
 
@@ -475,8 +475,8 @@ Previously, modules ran via `ThreadPoolExecutor` with a 5-second stagger between
 
 **PTC eliminates the stagger.** `ClaudeClient.run_ptc_round()` uses direct tool calling:
 
-1. A single `messages.create()` call defines an `analyze_module` tool (with `module_name` as the only parameter) and instructs the orchestrating Claude to call it once for **every** module in a single response.
-2. The API returns batched `tool_use` blocks — one per module — all in one response.
+1. A single `litellm.completion()` call defines an `analyze_module` tool (with `module_name` as the only parameter) and instructs the orchestrating LLM to call it once for **every** module in a single response.
+2. The API returns batched tool call objects — one per module — all in one response.
 3. Our server dispatches them in parallel via `ThreadPoolExecutor`, captures `ModuleOutput` objects server-side, and returns a slim `"ok"` acknowledgement per tool call.
 4. Module outputs never enter the orchestrating Claude's message context, so they contribute zero tokens to the rate-limit counter.
 5. If the orchestrator misses any modules, the loop continues until it returns `end_turn`.
@@ -579,6 +579,23 @@ After a run completes, the user has no signal about whether that run is trustwor
 Tiers: **good** (≥0.8), **degraded** (≥0.5), **poor** (<0.5). Thresholds are derived from observed benchmark data where good runs consistently show 75–84% source survival and 27–37 survived sources.
 
 **Integration point:** called at the end of `mediator.analyze()` after all consolidation is done — `result.quality = evaluate(result)` — so `RunQuality` is always populated before the result reaches the caller. Degraded/poor tiers emit a logger warning. The formatter prints the tier in color at the bottom of every output. The gate does not block or re-run — a degraded run is still informative, it just tells the user *why* to calibrate their confidence accordingly.
+
+### Why LiteLLM instead of direct Anthropic SDK calls?
+
+Originally `ClaudeClient` called `anthropic.Anthropic().messages.create()` directly. This made the backend a hard dependency — switching to GPT-4o for a cost comparison, or testing locally with Ollama, required code changes rather than a flag.
+
+**LiteLLM** provides a unified OpenAI-compatible interface that routes to any supported provider. A single `litellm.completion()` call works for:
+
+- **Anthropic** — `claude-sonnet-4-20250514` (default)
+- **OpenAI** — `gpt-4o`, `gpt-4o-mini`
+- **Ollama (local)** — `ollama/llama3.3`, `ollama/phi4` — no API key, runs on-device
+- **Together AI** — `together_ai/meta-llama/Llama-3-70b-chat-hf` — open-source models hosted in the cloud
+
+The only code-level change needed is the model string passed to `--model` or `--module-model`. All tool-calling, usage tracking, and message format handling is normalised by LiteLLM.
+
+**Why keep `anthropic` in `requirements.txt`?** The Langfuse OTEL instrumentation (`opentelemetry-instrumentation-anthropic`) patches `anthropic.Anthropic().messages.create()`. Until Langfuse adds LiteLLM-native instrumentation, retaining the `anthropic` package is the only way to get automatic per-generation traces in the Langfuse dashboard.
+
+**Local model use case:** With `ollama serve` running and a model pulled (e.g. `ollama pull llama3.3`), the entire pipeline runs fully offline: `--model ollama/llama3.3 --module-model ollama/phi4`. No API keys needed. This also makes the system useful for organisations with data-residency requirements.
 
 ### Resolved questions
 - **Sequential vs parallel execution within a round:** Modules run in parallel within each round. R1 and R2 use PTC (`run_ptc_round()`); deep research uses `ThreadPoolExecutor` directly. Both approaches dispatch all work simultaneously and collect results as they complete.
