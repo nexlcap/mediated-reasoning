@@ -10,7 +10,7 @@ Three rounds of structured reasoning:
 2. **Round 2 — Informed Revision:** Modules see each other's Round 1 outputs and revise their analysis.
 3. **Round 3 — Synthesis:** The mediator identifies conflicts between modules, flags critical issues (red/yellow/green), and generates final recommendations.
 
-Modules run in parallel within each round via programmatic tool calling (PTC). A web search pre-pass grounds each module's analysis in real, cited sources (DuckDuckGo by default — no API key required; Tavily opt-in for higher quality). A structural quality gate scores every run on source survival, module completion, and critical flag density, and displays the result (`good` / `degraded` / `poor`) at the end of every output.
+Modules run in parallel within each round via programmatic tool calling (PTC). LiteLLM is used as the LLM backend, supporting any provider out of the box — Anthropic (default), OpenAI, Together AI, or fully local models via Ollama (no API key required). A web search pre-pass grounds each module's analysis in real, cited sources (DuckDuckGo by default — no API key required; Tavily opt-in for higher quality). A structural quality gate scores every run on source survival, module completion, and critical flag density, and displays the result (`good` / `degraded` / `poor`) at the end of every output.
 
 ## Setup
 
