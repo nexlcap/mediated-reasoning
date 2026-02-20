@@ -284,7 +284,9 @@ mediated-reasoning/
 │   ├── test_module_selection.py # Prompt builders, dynamic module factory
 │   ├── test_exporters.py      # Export format tests
 │   ├── test_audit.py          # Audit layers 1 & 2 tests
-│   └── test_ptc.py            # run_ptc_round() unit tests
+│   ├── test_ptc.py            # run_ptc_round() unit tests
+│   ├── test_metrics.py        # Metrics extraction and comparison tests
+│   └── test_quality_gate.py   # Run quality gate scoring tests
 ├── docs/
 ├── .env.example
 └── requirements.txt
