@@ -114,6 +114,12 @@ class RoundTiming(BaseModel):
     total_s: float = 0.0
 
 
+class RunQuality(BaseModel):
+    score: float                        # 0.0–1.0
+    tier: Literal["good", "degraded", "poor"]
+    warnings: List[str] = Field(default_factory=list)
+
+
 class FinalAnalysis(BaseModel):
     problem: str
     generated_at: str = ""
@@ -132,6 +138,7 @@ class FinalAnalysis(BaseModel):
     conflict_resolutions: List[ConflictResolution] = Field(default_factory=list)
     deep_research_enabled: bool = False
     audit: Optional[AuditSummary] = None
+    quality: Optional[RunQuality] = None
     run_label: str = ""
     module_model: str = ""             # model used for module calls (empty = same as synthesis)
     token_usage: Optional[TokenUsage] = None

@@ -178,6 +178,19 @@ def format_round_summary(module_outputs: list[ModuleOutput], round_num: int) -> 
     return "\n".join(lines)
 
 
+def _format_quality(analysis: FinalAnalysis) -> list[str]:
+    from src.models.schemas import RunQuality
+    q = analysis.quality
+    if not isinstance(q, RunQuality):
+        return []
+    tier_color = {"good": GREEN, "degraded": YELLOW, "poor": RED}.get(q.tier, RESET)
+    lines = [f"{BOLD}Run Quality:{RESET} {tier_color}{q.tier}{RESET} (score: {q.score:.2f})"]
+    for w in q.warnings:
+        lines.append(f"  {YELLOW}⚠  {w}{RESET}")
+    lines.append("")
+    return lines
+
+
 def _format_audit(analysis: FinalAnalysis) -> list[str]:
     audit = analysis.audit
     if not audit:
@@ -288,6 +301,7 @@ def format_final_analysis(analysis: FinalAnalysis) -> str:
         lines.append("")
 
     lines.extend(_format_audit(analysis))
+    lines.extend(_format_quality(analysis))
 
     return "\n".join(lines)
 

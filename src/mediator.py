@@ -549,7 +549,7 @@ class Mediator:
 
         token_usage = self._merge_token_usage()
 
-        return FinalAnalysis(
+        result = FinalAnalysis(
             problem=problem,
             generated_at=datetime.now(timezone.utc).isoformat(),
             module_outputs=remapped_outputs,
@@ -577,6 +577,18 @@ class Mediator:
             modules_completed=len(round1_outputs),
             sources_claimed=sources_claimed,
         )
+
+        from src.audit.quality_gate import evaluate
+        result.quality = evaluate(result)
+        if result.quality.tier != "good":
+            logger.warning(
+                "Run quality: %s (score %.2f) — %s",
+                result.quality.tier,
+                result.quality.score,
+                "; ".join(result.quality.warnings),
+            )
+
+        return result
 
     def followup(self, analysis: FinalAnalysis, question: str) -> str:
         system, user = build_followup_prompt(analysis.problem, analysis, question)
