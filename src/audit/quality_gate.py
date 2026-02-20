@@ -65,7 +65,9 @@ def evaluate(analysis: "FinalAnalysis") -> "RunQuality":
         )
 
     # --- Tier ------------------------------------------------------------
-    score = max(0.0, min(1.0, score))
+    # Round before tier comparison to avoid IEEE754 boundary errors
+    # (e.g. 1.0 - 0.3 - 0.2 = 0.4999… rather than 0.5 in float64).
+    score = round(max(0.0, min(1.0, score)), 2)
     if score >= 0.8:
         tier = "good"
     elif score >= 0.5:
@@ -73,4 +75,4 @@ def evaluate(analysis: "FinalAnalysis") -> "RunQuality":
     else:
         tier = "poor"
 
-    return RunQuality(score=round(score, 2), tier=tier, warnings=warnings)
+    return RunQuality(score=score, tier=tier, warnings=warnings)

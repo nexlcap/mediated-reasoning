@@ -10,7 +10,7 @@ Three rounds of structured reasoning:
 2. **Round 2 — Informed Revision:** Modules see each other's Round 1 outputs and revise their analysis.
 3. **Round 3 — Synthesis:** The mediator identifies conflicts between modules, flags critical issues (red/yellow/green), and generates final recommendations.
 
-Modules run in parallel within each round via programmatic tool calling (PTC). A web search pre-pass grounds each module's analysis in real, cited sources (DuckDuckGo by default — no API key required; Tavily opt-in for higher quality).
+Modules run in parallel within each round via programmatic tool calling (PTC). A web search pre-pass grounds each module's analysis in real, cited sources (DuckDuckGo by default — no API key required; Tavily opt-in for higher quality). A structural quality gate scores every run on source survival, module completion, and critical flag density, and displays the result (`good` / `degraded` / `poor`) at the end of every output.
 
 ## Setup
 
@@ -87,6 +87,20 @@ python -m src.metrics                              # list all runs
 python -m src.metrics compare "food delivery"     # filter by problem
 python -m src.metrics compare --label baseline v2 # compare two labels
 ```
+
+### Run Quality Gate
+
+Every run computes a quality score (0–1) from structural metrics — no LLM calls:
+
+| Signal | Condition | Penalty |
+|--------|-----------|---------|
+| Module failures | per failed module | −0.30 |
+| Source survival | <50% of claimed sources had real URLs | −0.30 |
+| Source survival | <70% | −0.10 |
+| Grounding depth | <5 sources survived | −0.20 |
+| Critical flags | ≥4 red flags | −0.10 |
+
+Tiers: **good** (≥0.8) · **degraded** (≥0.5) · **poor** (<0.5). Displayed in color at the end of every output; degraded/poor runs also log a warning.
 
 ### Source Integrity Audit
 
