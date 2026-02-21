@@ -228,6 +228,7 @@ class Mediator:
         deep_research: bool = False,
         module_client: Optional[ClaudeClient] = None,
         repeat_prompt: bool = True,
+        tavily_api_key: Optional[str] = None,
     ):
         self.client = client                              # synthesis + auto-select + gap-check
         self.module_client = module_client or client     # module analysis + search queries
@@ -237,6 +238,7 @@ class Mediator:
         self.search = search
         self.deep_research = deep_research
         self.repeat_prompt = repeat_prompt
+        self.tavily_api_key = tavily_api_key
         self.selection_metadata: Optional[SelectionMetadata] = None
 
         if not auto_select:
@@ -458,7 +460,7 @@ class Mediator:
             pass  # modules already initialized in __init__
 
         # Create searcher once; uses module_client for query generation
-        searcher = SearchPrePass(self.module_client) if self.search else None
+        searcher = SearchPrePass(self.module_client, tavily_api_key=self.tavily_api_key) if self.search else None
 
         t_start = time.perf_counter()
 

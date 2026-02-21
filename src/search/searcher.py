@@ -11,14 +11,15 @@ logger = get_logger(__name__)
 
 
 class SearchPrePass:
-    def __init__(self, client: ClaudeClient):
+    def __init__(self, client: ClaudeClient, tavily_api_key: Optional[str] = None):
         self.llm = client
         self._query_cache: Dict[str, List[SearchResult]] = {}
         self.tavily = None
         self._ddgs = None
 
         # Prefer Tavily when an API key is present (higher quality, paid)
-        api_key = os.getenv("TAVILY_API_KEY")
+        # Accept key directly or fall back to env var
+        api_key = tavily_api_key or os.getenv("TAVILY_API_KEY")
         if api_key:
             try:
                 from tavily import TavilyClient
