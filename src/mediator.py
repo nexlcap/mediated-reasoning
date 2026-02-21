@@ -242,13 +242,14 @@ class Mediator:
         self.tavily_api_key = tavily_api_key
         self._on_progress = on_progress
 
-    def _progress(self, msg: str) -> None:
-        if self._on_progress:
-            self._on_progress(msg)
         self.selection_metadata: Optional[SelectionMetadata] = None
 
         if not auto_select:
             self._init_default_modules()
+
+    def _progress(self, msg: str) -> None:
+        if self._on_progress:
+            self._on_progress(msg)
 
     def _init_default_modules(self):
         all_modules = [cls(self.module_client) for cls in MODULE_REGISTRY]
