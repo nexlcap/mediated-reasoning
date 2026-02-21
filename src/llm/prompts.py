@@ -132,17 +132,6 @@ MODULE_DESCRIPTIONS = {
     "risk": "Uncertainty, downside scenarios, threat categorization, hedging, contingency",
 }
 
-DEFAULT_RACI_MATRIX: Dict[str, Dict[str, Any]] = {
-    "Market opportunity & demand": {
-        "R": "market", "A": "market", "C": ["cost"], "I": ["risk"],
-    },
-    "Financial viability": {
-        "R": "cost", "A": "cost", "C": ["market"], "I": ["risk"],
-    },
-    "Risk assessment": {
-        "R": "risk", "A": "risk", "C": ["cost", "market"], "I": [],
-    },
-}
 
 def _module_json_instruction(has_search_context: bool) -> str:
     """Return the JSON schema instruction for module prompts.
@@ -239,7 +228,6 @@ def build_synthesis_prompt(
     all_outputs: List[Dict],
     weights: Optional[Dict[str, float]] = None,
     deactivated_modules: Optional[List[str]] = None,
-    raci: Optional[Dict[str, Dict[str, Any]]] = None,
     search_context=None,
     global_sources: Optional[List[str]] = None,
 ) -> tuple[str, str]:
@@ -272,24 +260,6 @@ def build_synthesis_prompt(
         deactivated_field = (
             '  "deactivated_disclaimer": "Disclaimer noting which modules were '
             'deactivated and that their analysis is absent",\n'
-        )
-
-    raci_instruction = ""
-    if raci:
-        rows = []
-        for topic, roles in raci.items():
-            c = ", ".join(roles["C"]) if isinstance(roles["C"], list) else roles["C"]
-            i = ", ".join(roles["I"]) if isinstance(roles["I"], list) else roles["I"]
-            rows.append(f"| {topic} | {roles['R']} | {roles['A']} | {c} | {i} |")
-        table = "\n".join(rows)
-        raci_instruction = (
-            "\n\nRACI MATRIX — Use this to resolve conflicts and prioritize recommendations:\n"
-            "| Topic | Responsible | Accountable | Consulted | Informed |\n"
-            "|---|---|---|---|---|\n"
-            f"{table}\n"
-            "When modules disagree, the Accountable module's position should carry the most "
-            "weight for that topic. Consulted modules provide secondary input. "
-            "Informed modules are noted but should not override the Accountable module."
         )
 
     search_section = ""
@@ -338,7 +308,7 @@ def build_synthesis_prompt(
         f"{search_section}"
         f"{source_list_section}"
         "Synthesize these analyses into a final assessment.\n\n"
-        f"{weight_instruction}{deactivated_instruction}{raci_instruction}\n\n"
+        f"{weight_instruction}{deactivated_instruction}\n\n"
         "Return your response as a JSON object with exactly these fields:\n"
         '{\n'
         f'{deactivated_field}'

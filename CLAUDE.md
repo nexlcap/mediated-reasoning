@@ -26,7 +26,7 @@ CLI tool using multi-agent mediated reasoning to analyze complex problems from m
 | 10 | Sources/citations field | Done |
 | 11 | Langfuse integration (tracing, cost tracking) | Done |
 | 12 | `--customer-report` flag (client-facing, no internals) | Done |
-| 13 | Optional RACI matrix (`--raci`) for synthesis conflict resolution | Done |
+| 13 | Optional RACI matrix (`--raci`) for synthesis conflict resolution | Removed — hardcoded, rarely applicable, replaced by module weights |
 | 14 | Adaptive module selection — pre-pass to activate only relevant modules | Done |
 | 15 | Runtime re-delegation on failure — retry/redistribute failed modules | Open |
 | 16 | Per-module trust scores — dynamic reliability tracking across runs | Open |

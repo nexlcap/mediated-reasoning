@@ -10,7 +10,6 @@ from datetime import datetime, timezone
 from typing import List
 
 from src.models.schemas import Conflict, ConflictResolution, FinalAnalysis, ModuleOutput
-from src.llm.prompts import DEFAULT_RACI_MATRIX
 
 _CITE_RE = re.compile(r"\[(\d+)\]")
 _URL_RE = re.compile(r"(https?://[^\s<>&\"]+)")
@@ -73,14 +72,9 @@ nav.toc a:hover { text-decoration: underline; }
   font-weight: 600; color: #555; white-space: nowrap;
   width: 1%; padding-right: 1.2rem;
 }
-.config-raci { margin-top: .2rem; }
-.raci-note { font-weight: 400; font-style: italic; color: #999; }
 table.weights { border-collapse: collapse; width: 100%; }
 table.weights th, table.weights td { border: 1px solid #e0e0e0; padding: .25rem .55rem; text-align: left; }
 table.weights th { background: #efefef; font-weight: 600; font-size: .82rem; }
-table.raci { border-collapse: collapse; width: 100%; font-size: .83rem; margin-top: .3rem; }
-table.raci th, table.raci td { border: 1px solid #ddd; padding: .3rem .55rem; text-align: left; }
-table.raci th { background: #efefef; font-weight: 600; }
 
 /* ── Flags ──────────────────────────────────────────────── */
 ul.flags { list-style: none; padding: 0; margin: .5rem 0 1rem; }
@@ -300,30 +294,12 @@ def _section_config(analysis: FinalAnalysis) -> str:
 
     info_trs = "".join(f"<tr><td>{k}</td><td>{v}</td></tr>" for k, v in rows)
 
-    # RACI — use run-specific matrix if set, else fall back to default
-    raci_source = analysis.raci_matrix if analysis.raci_matrix else DEFAULT_RACI_MATRIX
-    header = "<tr><th>Topic</th><th>Responsible</th><th>Accountable</th><th>Consulted</th><th>Informed</th></tr>"
-    raci_rows = []
-    for topic, roles in raci_source.items():
-        c = ", ".join(roles["C"]) if isinstance(roles.get("C"), list) else (roles.get("C") or "")
-        i = ", ".join(roles["I"]) if isinstance(roles.get("I"), list) else (roles.get("I") or "")
-        raci_rows.append(
-            f"<tr><td>{_e(topic)}</td><td>{_e(roles.get('R',''))}</td>"
-            f"<td>{_e(roles.get('A',''))}</td><td>{_e(c)}</td><td>{_e(i)}</td></tr>"
-        )
-    raci_label = "custom" if analysis.raci_matrix else "default"
-    raci_html = (
-        f"<div class='config-label'>RACI Matrix <span class='raci-note'>({raci_label})</span></div>"
-        f"<table class='raci'>{header}{''.join(raci_rows)}</table>"
-    )
-
     return (
         f"<div class='config-box'>"
         f"<div class='config-cols'>"
         f"<div><div class='config-label'>Modules &amp; Weights</div>{modules_table}</div>"
         f"<div><table>{info_trs}</table></div>"
         f"</div>"
-        f"<div class='config-raci'>{raci_html}</div>"
         f"</div>"
     )
 

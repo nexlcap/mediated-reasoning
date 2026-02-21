@@ -2,7 +2,6 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from src.llm.client import ClaudeClient
-from src.llm.prompts import DEFAULT_RACI_MATRIX
 from src.mediator import Mediator
 from src.models.schemas import FinalAnalysis, ModuleOutput, TokenUsage
 from tests.conftest import SAMPLE_LLM_RESPONSE, SAMPLE_SYNTHESIS_RESPONSE, _fake_ptc_round
@@ -203,30 +202,6 @@ class TestMediatorWeights:
         assert mediator.deactivated_modules == []
         assert len(mediator.modules) == 3
 
-
-class TestMediatorRaci:
-    def test_raci_passed_to_synthesis_prompt(self, sample_problem):
-        client = _make_ptc_client()
-
-        mediator = Mediator(client, raci=DEFAULT_RACI_MATRIX)
-        with patch("src.mediator.build_synthesis_prompt", wraps=__import__("src.llm.prompts", fromlist=["build_synthesis_prompt"]).build_synthesis_prompt) as mock_prompt:
-            mediator.analyze(sample_problem)
-            _, kwargs = mock_prompt.call_args
-            assert kwargs["raci"] is DEFAULT_RACI_MATRIX
-
-    def test_raci_matrix_in_final_analysis(self, sample_problem):
-        client = _make_ptc_client()
-
-        mediator = Mediator(client, raci=DEFAULT_RACI_MATRIX)
-        result = mediator.analyze(sample_problem)
-        assert result.raci_matrix == DEFAULT_RACI_MATRIX
-
-    def test_no_raci_by_default(self, sample_problem):
-        client = _make_ptc_client()
-
-        mediator = Mediator(client)
-        result = mediator.analyze(sample_problem)
-        assert result.raci_matrix == {}
 
 
 SAMPLE_SELECTION_RESPONSE = {

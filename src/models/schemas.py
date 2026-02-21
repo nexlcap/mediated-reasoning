@@ -130,7 +130,6 @@ class FinalAnalysis(BaseModel):
     priority_flags: List[str] = Field(default_factory=list)
     sources: List[str] = Field(default_factory=list)
     deactivated_disclaimer: str = ""
-    raci_matrix: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
     selection_metadata: Optional[SelectionMetadata] = None
     search_context: Optional[SearchContext] = None
     weights: Dict[str, float] = Field(default_factory=dict)

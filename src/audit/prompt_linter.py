@@ -53,7 +53,7 @@ def lint() -> List[str]:
     # --- Layer 1b: build_synthesis_prompt ---
 
     # Without global_sources → synthesis may cite normally
-    _, user_no_global = build_synthesis_prompt("test problem", [], None, None, None, None, None)
+    _, user_no_global = build_synthesis_prompt("test problem", [], None, None, None, None)
     check(
         "sources" in user_no_global.lower(),
         "build_synthesis_prompt (no global_sources) missing sources field",
@@ -61,7 +61,7 @@ def lint() -> List[str]:
 
     # With global_sources → must inject list and forbid new sources
     _, user_with_global = build_synthesis_prompt(
-        "test problem", [], None, None, None, None,
+        "test problem", [], None, None, None,
         global_sources=["Source One — https://example.com/1"],
     )
     check(

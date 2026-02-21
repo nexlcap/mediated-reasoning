@@ -94,28 +94,6 @@ def _format_analysis_config(analysis: FinalAnalysis) -> list[str]:
         adhoc_names = ", ".join(m.name for m in meta.ad_hoc_modules)
         lines.append(f"  {BOLD}Ad-hoc modules:{RESET} {adhoc_names}")
 
-    # RACI matrix
-    if analysis.raci_matrix:
-        lines.append(f"  {BOLD}RACI matrix:{RESET}")
-        col_w = [28, 14, 14, 14, 14]
-        header = (
-            f"    {'Topic':<{col_w[0]}} {'Responsible':<{col_w[1]}} "
-            f"{'Accountable':<{col_w[2]}} {'Consulted':<{col_w[3]}} {'Informed':<{col_w[4]}}"
-        )
-        sep = "    " + "-" * (sum(col_w) + 4 * 1)
-        lines.append(sep)
-        lines.append(header)
-        lines.append(sep)
-        for topic, roles in analysis.raci_matrix.items():
-            c = ", ".join(roles["C"]) if isinstance(roles.get("C"), list) else (roles.get("C") or "")
-            i = ", ".join(roles["I"]) if isinstance(roles.get("I"), list) else (roles.get("I") or "")
-            row = (
-                f"    {topic:<{col_w[0]}} {roles.get('R', ''):<{col_w[1]}} "
-                f"{roles.get('A', ''):<{col_w[2]}} {c:<{col_w[3]}} {i:<{col_w[4]}}"
-            )
-            lines.append(row)
-        lines.append(sep)
-
     lines.append("")
     return lines
 

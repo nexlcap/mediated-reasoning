@@ -3,7 +3,7 @@ import argparse
 import pytest
 from unittest.mock import MagicMock, patch
 
-from src.llm.prompts import ALL_MODULE_NAMES, DEFAULT_RACI_MATRIX
+from src.llm.prompts import ALL_MODULE_NAMES
 from src.main import main, parse_weight, DEFAULT_MODULE_NAMES, VALID_MODULE_NAMES
 
 
@@ -183,33 +183,6 @@ class TestMainEntrypoint:
 
         mock_mediator.followup.assert_called_once_with(mock_result, "What about costs?")
 
-    @patch("src.main.export_all")
-    @patch("src.main.Mediator")
-    @patch("src.main.ClaudeClient")
-    def test_raci_flag_passes_matrix(self, mock_client_cls, mock_mediator_cls, mock_export):
-        mock_result = MagicMock()
-        mock_result.module_outputs = []
-        mock_mediator_cls.return_value.analyze.return_value = mock_result
-
-        with patch("sys.argv", ["prog", "test", "--raci"]):
-            main()
-
-        _, kwargs = mock_mediator_cls.call_args
-        assert kwargs["raci"] is DEFAULT_RACI_MATRIX
-
-    @patch("src.main.export_all")
-    @patch("src.main.Mediator")
-    @patch("src.main.ClaudeClient")
-    def test_no_raci_by_default(self, mock_client_cls, mock_mediator_cls, mock_export):
-        mock_result = MagicMock()
-        mock_result.module_outputs = []
-        mock_mediator_cls.return_value.analyze.return_value = mock_result
-
-        with patch("sys.argv", ["prog", "test"]):
-            main()
-
-        _, kwargs = mock_mediator_cls.call_args
-        assert kwargs["raci"] is None
 
 
 class TestAutoSelectFlag:

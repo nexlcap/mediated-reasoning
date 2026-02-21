@@ -222,7 +222,6 @@ class Mediator:
         self,
         client: ClaudeClient,
         weights: Optional[Dict[str, float]] = None,
-        raci: Optional[Dict] = None,
         auto_select: bool = False,
         search: bool = True,
         deep_research: bool = False,
@@ -234,7 +233,6 @@ class Mediator:
         self.client = client                              # synthesis + auto-select + gap-check
         self.module_client = module_client or client     # module analysis + search queries
         self.weights = weights or {}
-        self.raci = raci
         self.auto_select = auto_select
         self.search = search
         self.deep_research = deep_research
@@ -533,7 +531,6 @@ class Mediator:
                     problem, all_output_dicts,
                     weights=self.weights,
                     deactivated_modules=self.deactivated_modules,
-                    raci=self.raci,
                     global_sources=pre_global_sources,
                 )
                 try:
@@ -580,7 +577,6 @@ class Mediator:
             priority_flags=priority_flags,
             sources=global_sources,
             deactivated_disclaimer=synthesis_result.get("deactivated_disclaimer", ""),
-            raci_matrix=self.raci or {},
             selection_metadata=self.selection_metadata,
             weights=self.weights,
             search_enabled=self.search,

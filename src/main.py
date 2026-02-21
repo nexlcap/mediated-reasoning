@@ -6,7 +6,7 @@ import sys
 from dotenv import load_dotenv
 
 from src.llm.client import ClaudeClient, DEFAULT_MODEL
-from src.llm.prompts import ALL_MODULE_NAMES, DEFAULT_RACI_MATRIX, MODULE_SYSTEM_PROMPTS
+from src.llm.prompts import ALL_MODULE_NAMES, MODULE_SYSTEM_PROMPTS
 from src.mediator import Mediator
 from src.modules import MODULE_REGISTRY
 from src.utils.exporters import export_all
@@ -70,7 +70,6 @@ def main():
         "--weight", action="append", type=parse_weight, default=[], metavar="MODULE=N",
         help="Set module weight (e.g. --weight legal=2). Weight 0 deactivates a module."
     )
-    parser.add_argument("--raci", action="store_true", help="Use RACI matrix for conflict resolution in synthesis")
     parser.add_argument("--interactive", action="store_true", help="Enter interactive follow-up mode after analysis")
     parser.add_argument("--list-modules", action="store_true", help="List available modules and exit")
     parser.add_argument("--auto-select", action="store_true", help="Use adaptive module selection (LLM pre-pass to pick relevant modules)")
@@ -98,11 +97,10 @@ def main():
         os.environ["MEDIATED_REASONING_DEBUG"] = "1"
 
     weights = dict(args.weight) if args.weight else {}
-    raci = DEFAULT_RACI_MATRIX if args.raci else None
 
     client = ClaudeClient(model=args.model)
     module_client = ClaudeClient(model=args.module_model, max_tokens=2048) if args.module_model else None
-    mediator = Mediator(client, weights=weights, raci=raci, auto_select=args.auto_select, search=not args.no_search, deep_research=args.deep_research, module_client=module_client, repeat_prompt=not args.no_repeat_prompt)
+    mediator = Mediator(client, weights=weights, auto_select=args.auto_select, search=not args.no_search, deep_research=args.deep_research, module_client=module_client, repeat_prompt=not args.no_repeat_prompt)
 
     print(f"\nAnalyzing: {problem}\n")
     if args.auto_select:
