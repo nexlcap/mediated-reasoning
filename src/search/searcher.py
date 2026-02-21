@@ -28,13 +28,19 @@ class SearchPrePass:
                 logger.warning("TAVILY_API_KEY set but tavily-python not installed — falling back to DuckDuckGo")
 
         # Zero-config fallback: DuckDuckGo (no API key required)
+        # Package was renamed from duckduckgo-search to ddgs; try both.
         if not self.tavily:
             try:
-                from duckduckgo_search import DDGS
+                from ddgs import DDGS
                 self._ddgs = DDGS
-                logger.debug("Search backend: DuckDuckGo")
+                logger.debug("Search backend: DuckDuckGo (ddgs)")
             except ImportError:
-                logger.warning("No search backend available — install duckduckgo-search or set TAVILY_API_KEY")
+                try:
+                    from duckduckgo_search import DDGS
+                    self._ddgs = DDGS
+                    logger.debug("Search backend: DuckDuckGo (duckduckgo_search)")
+                except ImportError:
+                    logger.warning("No search backend available — install ddgs or set TAVILY_API_KEY")
 
     @property
     def _can_search(self) -> bool:
