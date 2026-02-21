@@ -1,5 +1,7 @@
 # Mediated Reasoning
 
+**Try it now:** [🧠 HuggingFace Space](https://huggingface.co/spaces/Yi47/mediated-reasoning) — no setup required, bring your own API key.
+
 A CLI tool that uses multi-agent mediated reasoning to analyze complex problems from multiple perspectives. Specialist modules independently assess a problem, revise after seeing each other's work, and a mediator synthesizes the results into a final analysis with conflict detection, priority flags, and actionable recommendations with inline source citations.
 
 ## How It Works
