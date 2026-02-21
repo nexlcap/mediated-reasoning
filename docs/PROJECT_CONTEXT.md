@@ -303,7 +303,7 @@ mediated-reasoning/
   - `pydantic` — Data validation and schemas
   - `python-dotenv` — Environment variable management
   - `pytest` — Testing
-  - `duckduckgo-search` — zero-config web search backend (no API key required); default search backend
+  - `ddgs` — zero-config web search backend (no API key required); default search backend (renamed from `duckduckgo-search`)
   - `httpx` — HTTP client for URL reachability checks and source page fetching (audit layers 3 & 4)
 - **Optional dependencies** (not installed by default):
   - `tavily-python` (`requirements-tavily.txt`) — higher-quality search via Tavily API; activated automatically when `TAVILY_API_KEY` is set
