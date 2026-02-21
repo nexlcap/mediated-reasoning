@@ -229,6 +229,7 @@ class Mediator:
         module_client: Optional[ClaudeClient] = None,
         repeat_prompt: bool = True,
         tavily_api_key: Optional[str] = None,
+        on_progress=None,
     ):
         self.client = client                              # synthesis + auto-select + gap-check
         self.module_client = module_client or client     # module analysis + search queries
@@ -239,6 +240,11 @@ class Mediator:
         self.deep_research = deep_research
         self.repeat_prompt = repeat_prompt
         self.tavily_api_key = tavily_api_key
+        self._on_progress = on_progress
+
+    def _progress(self, msg: str) -> None:
+        if self._on_progress:
+            self._on_progress(msg)
         self.selection_metadata: Optional[SelectionMetadata] = None
 
         if not auto_select:
@@ -454,18 +460,24 @@ class Mediator:
 
     def analyze(self, problem: str) -> FinalAnalysis:
         if self.auto_select:
+            self._progress("Selecting relevant modules…")
             with observability.span("auto-select"):
                 self._select_modules(problem)
+            self._progress(f"Modules selected: {', '.join(m.name for m in self.modules)}")
         else:
             pass  # modules already initialized in __init__
 
         # Create searcher once; uses module_client for query generation
+        if self.search:
+            backend = "Tavily" if self.tavily_api_key else "DuckDuckGo"
+            self._progress(f"Running web search pre-pass ({backend})…")
         searcher = SearchPrePass(self.module_client, tavily_api_key=self.tavily_api_key) if self.search else None
 
         t_start = time.perf_counter()
 
         # Round 1: Independent analysis (all modules dispatched in parallel via PTC)
         logger.info("Starting Round 1: Independent Analysis")
+        self._progress(f"Round 1 — independent analysis ({len(self.modules)} modules in parallel)…")
         round1_outputs: List[ModuleOutput] = []
         with observability.span("round-1"):
             try:
@@ -476,11 +488,13 @@ class Mediator:
                 logger.error("Round 1 failed: %s", e)
         module_order = {m.name: i for i, m in enumerate(self.modules)}
         round1_outputs.sort(key=lambda o: module_order[o.module_name])
+        self._progress(f"Round 1 complete ({len(round1_outputs)}/{len(self.modules)} modules)")
 
         t1 = time.perf_counter()
 
         # Round 2: Informed revision (all eligible modules dispatched in parallel via PTC)
         logger.info("Starting Round 2: Informed Revision")
+        self._progress("Round 2 — cross-module revision…")
         round1_dicts = [o.model_dump() for o in round1_outputs]
         round1_names = {o.module_name for o in round1_outputs}
         eligible_modules = [m for m in self.modules if m.name in round1_names]
@@ -494,6 +508,7 @@ class Mediator:
                 except Exception as e:
                     logger.error("Round 2 failed: %s", e)
         round2_outputs.sort(key=lambda o: module_order[o.module_name])
+        self._progress("Round 2 complete")
 
         t2 = time.perf_counter()
 
@@ -503,6 +518,7 @@ class Mediator:
 
         # Round 3: Synthesis
         logger.info("Starting Round 3: Synthesis")
+        self._progress("Round 3 — synthesis…")
 
         synthesis_result = {}
         with observability.span("synthesis"):
@@ -527,6 +543,7 @@ class Mediator:
                 logger.error("All modules failed — no data to synthesize")
 
         t3 = time.perf_counter()
+        self._progress("Synthesis complete")
 
         # Final consolidation: remap all inline citations consistently
         global_sources, remapped_outputs, remapped_synthesis = (
@@ -540,6 +557,7 @@ class Mediator:
         conflict_resolutions: List[ConflictResolution] = []
         if self.deep_research:
             logger.info("Starting Deep Research Round: Conflict & Flag Resolution")
+            self._progress("Deep research — resolving conflicts with targeted search…")
             with observability.span("deep-research"):
                 conflict_resolutions = self._run_deep_research(
                     problem, conflicts, priority_flags, remapped_outputs, searcher
