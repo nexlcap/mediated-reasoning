@@ -97,6 +97,8 @@ ul.flags li::before { position: absolute; left: 0; font-weight: 700; }
 .conflict.high, .conflict.critical { border-color: #b52a2a; }
 .conflict.medium { border-color: #c47d00; }
 .conflict.low    { border-color: #1e7c3a; }
+.conflict-arbitration { margin-top: .35rem; font-size: .88rem; color: #555; }
+.conflict-arbitration strong { color: #333; }
 .conflict-label {
   font-size: .78rem; font-weight: 700; text-transform: uppercase;
   letter-spacing: .05em; margin-bottom: .25rem;
@@ -342,10 +344,19 @@ def _section_conflicts(conflicts: List[Conflict], anchor: bool = False) -> str:
     for c in conflicts:
         cls = c.severity.lower()
         modules = " vs ".join(_e(m) for m in c.modules)
+        arbitration_html = ""
+        if c.arbitration:
+            arbitration_html = (
+                f"<div class='conflict-arbitration'>"
+                f"<strong>Authority: {_e(c.arbitration.authority)}</strong>"
+                f" — {_e(c.arbitration.reasoning)}"
+                f"</div>"
+            )
         items.append(
             f"<div class='conflict {cls}'>"
             f"<div class='conflict-label'>[{_e(c.severity.upper())}] {modules} — {_e(c.topic)}</div>"
             f"<div>{_cite(c.description)}</div>"
+            f"{arbitration_html}"
             f"</div>"
         )
     heading = f"<h3{id_attr}>Conflicts Identified</h3>"

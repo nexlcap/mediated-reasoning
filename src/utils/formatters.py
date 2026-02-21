@@ -26,7 +26,13 @@ def _format_conflict(conflict: Conflict) -> str:
     color = SEVERITY_COLORS.get(conflict.severity, "")
     reset = RESET if color else ""
     modules = " vs ".join(conflict.modules)
-    return f"  - {color}[{severity_tag}]{reset} {modules} — {conflict.topic}: {conflict.description}"
+    line = f"  - {color}[{severity_tag}]{reset} {modules} — {conflict.topic}: {conflict.description}"
+    if conflict.arbitration:
+        line += (
+            f"\n    {BOLD}→ Authority:{RESET} {conflict.arbitration.authority}"
+            f" — {conflict.arbitration.reasoning}"
+        )
+    return line
 
 
 def _colorize_flag(flag: str) -> str:

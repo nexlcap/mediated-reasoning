@@ -309,13 +309,19 @@ def build_synthesis_prompt(
         f"{source_list_section}"
         "Synthesize these analyses into a final assessment.\n\n"
         f"{weight_instruction}{deactivated_instruction}\n\n"
+        "CONFLICT ARBITRATION: For each conflict, set \"arbitration.authority\" to the module "
+        "whose core domain makes it the most credible voice on that specific topic (e.g. cost "
+        "owns financial estimates, tech owns implementation feasibility, legal owns compliance). "
+        "Write a one-sentence \"arbitration.reasoning\" explaining why. This guides the "
+        "synthesis but does not silence the other module's findings.\n\n"
         "Return your response as a JSON object with exactly these fields:\n"
         '{\n'
         f'{deactivated_field}'
         '  "conflicts": [\n'
         '    {"modules": ["market", "cost"], "topic": "burn rate", '
         '"description": "Market sees high demand but cost flags high burn rate [1][2]", '
-        '"severity": "high"},\n'
+        '"severity": "high", '
+        '"arbitration": {"authority": "cost", "reasoning": "Cost owns financial modelling; market\'s estimate is directional only."}},\n'
         '    ...\n'
         '  ],\n'
         '  "synthesis": "Overall synthesized assessment paragraph with inline citations [1][2]",\n'

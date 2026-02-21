@@ -41,11 +41,17 @@ class ModuleOutput(BaseModel):
     revised: bool = False
 
 
+class ConflictArbitration(BaseModel):
+    authority: str   # module whose position is authoritative for this topic
+    reasoning: str   # one-sentence justification
+
+
 class Conflict(BaseModel):
     modules: List[str]
     topic: str
     description: str
     severity: Literal["critical", "high", "medium", "low"]
+    arbitration: Optional[ConflictArbitration] = None
 
 
 class ConflictResolution(BaseModel):
