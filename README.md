@@ -1,18 +1,22 @@
-# Mediated Reasoning
+# 🔥 Fusen
 
-**Try it now:** [🧠 HuggingFace Space](https://huggingface.co/spaces/Yi47/mediated-reasoning) — no setup required, bring your own API key.
+**Fuse every angle. Move alone.**
 
-A CLI tool that uses multi-agent mediated reasoning to analyze complex problems from multiple perspectives. Specialist modules independently assess a problem, revise after seeing each other's work, and a mediator synthesizes the results into a final analysis with conflict detection, priority flags, and actionable recommendations with inline source citations.
+**Try it now:** [🔥 HuggingFace Space](https://huggingface.co/spaces/Yi47/mediated-reasoning) — no setup required, bring your own API key.
+
+Fusen is the AI co-founder for solo entrepreneurs and builders. It fuses the perspectives of five specialist AI advisors — market, technology, cost, legal, and scalability — into a single, structured recommendation. Three rounds of structured reasoning, zero blind spots.
+
+Whether you're validating a startup idea, distilling market signals into product opportunities, or navigating the next phase of company building, Fusen covers every role so you don't have to hire for them.
 
 ## How It Works
 
 Three rounds of structured reasoning:
 
-1. **Round 1 — Independent Analysis:** Each module analyzes the problem independently, ensuring unbiased initial perspectives.
+1. **Round 1 — Independent Analysis:** Each specialist module analyses the problem independently, ensuring unbiased initial perspectives.
 2. **Round 2 — Informed Revision:** Modules see each other's Round 1 outputs and revise their analysis.
-3. **Round 3 — Synthesis:** The mediator identifies conflicts between modules, flags critical issues (red/yellow/green), and generates final recommendations.
+3. **Round 3 — Synthesis:** The mediator identifies conflicts between modules, arbitrates them, flags critical issues (red/yellow/green), and generates final recommendations.
 
-Modules run in parallel within each round via programmatic tool calling (PTC). LiteLLM is used as the LLM backend, supporting any provider out of the box — Anthropic (default), OpenAI, Together AI, or fully local models via Ollama (no API key required). A web search pre-pass grounds each module's analysis in real, cited sources (DuckDuckGo by default — no API key required; Tavily opt-in for higher quality). A structural quality gate scores every run on source survival, module completion, and critical flag density, and displays the result (`good` / `degraded` / `poor`) at the end of every output.
+Modules run in parallel within each round via programmatic tool calling (PTC). LiteLLM is used as the LLM backend, supporting any provider out of the box — Anthropic (default), OpenAI, Google Gemini, Groq, or fully local models via Ollama (no API key required). A web search pre-pass grounds each module's analysis in real, cited sources (DuckDuckGo by default — no API key required; Tavily opt-in for higher quality). A structural quality gate scores every run on source survival, module completion, and critical flag density, and displays the result (`good` / `degraded` / `poor`) at the end of every output.
 
 ## Setup
 
@@ -23,7 +27,7 @@ pip install -r requirements.txt
 
 cp .env.example .env
 # Add ANTHROPIC_API_KEY to .env for the default Claude model
-# For other providers, see .env.example — OpenAI, Together AI, or Ollama (local, no key)
+# For other providers, see .env.example — OpenAI, Google, Groq, or Ollama (local, no key)
 
 # Optional: Tavily for higher-quality search results
 # pip install -r requirements-tavily.txt
@@ -33,7 +37,7 @@ cp .env.example .env
 ## Usage
 
 ```bash
-# Basic analysis (3 default modules: market, cost, risk)
+# Basic analysis
 python -m src.main "Should we build a food delivery app?"
 
 # Adaptive module selection — LLM picks relevant modules from a pool of 12
@@ -41,9 +45,6 @@ python -m src.main "your problem" --auto-select
 
 # Export all formats (md, json, html) to output/ directory
 python -m src.main "your problem" --output
-
-# Customer-facing report (no internal details)
-python -m src.main "your problem" --customer-report
 
 # Detailed internal report (round-by-round breakdown)
 python -m src.main "your problem" --report
@@ -63,7 +64,7 @@ python -m src.main "your problem" --weight legal=2 --weight cost=0
 # Use a separate model for module calls (cheaper/faster)
 python -m src.main "your problem" --module-model claude-haiku-4-5-20251001
 
-# Use any LiteLLM-supported provider (OpenAI, local Ollama, etc.)
+# Use any LiteLLM-supported provider (OpenAI, Gemini, Groq, local Ollama, etc.)
 python -m src.main "your problem" --model gpt-4o --module-model gpt-4o-mini
 python -m src.main "your problem" --model ollama/llama3.3  # fully local, no API key
 
@@ -133,7 +134,7 @@ LANGFUSE_PUBLIC_KEY=pk-lf-...
 LANGFUSE_SECRET_KEY=sk-lf-...
 ```
 
-When keys are set, every run creates a trace in your Langfuse dashboard named `mediated-reasoning` with nested spans for `auto-select`, `round-1`, `round-2`, `synthesis`, and `deep-research`. Module generations are auto-captured by OpenTelemetry instrumentation. Without keys the system runs unchanged.
+When keys are set, every run creates a trace in your Langfuse dashboard named `fusen` with nested spans for `auto-select`, `round-1`, `round-2`, `synthesis`, and `deep-research`. Module generations are auto-captured by OpenTelemetry instrumentation. Without keys the system runs unchanged.
 
 ## Sample Reports
 
