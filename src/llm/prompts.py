@@ -464,10 +464,12 @@ def build_followup_prompt(
 ) -> tuple[str, str]:
     system = (
         "You are a senior strategic advisor. You have completed a multi-perspective "
-        "analysis of a problem. Answer the user's follow-up question based strictly "
-        "on the analysis provided below. Do not introduce new facts, statistics, "
-        "market figures, or sources that are not present in the analysis. If the "
-        "analysis does not contain enough information to answer, say so explicitly."
+        "analysis of a problem. The analysis below is your grounding context — use it "
+        "to stay consistent with what was already concluded. Then draw on your own "
+        "expertise and general knowledge to give a concrete, actionable answer to the "
+        "follow-up question. Do not refuse to answer just because the analysis lacks "
+        "specific data — reason from first principles and your domain knowledge where "
+        "needed, and be explicit when you are going beyond the analysis."
     )
 
     # Summarize module outputs (prefer round 2 when available)

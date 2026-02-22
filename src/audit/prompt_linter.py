@@ -104,12 +104,12 @@ def lint() -> List[str]:
     minimal = FinalAnalysis(problem="test")
     system, _ = build_followup_prompt("test problem", minimal, "a question")
     check(
-        "do not introduce" in system.lower(),
-        "build_followup_prompt system prompt missing 'do not introduce new facts'",
+        "grounding" in system.lower() or "context" in system.lower(),
+        "build_followup_prompt system prompt missing grounding context reference",
     )
     check(
-        "strictly" in system.lower() or "only" in system.lower(),
-        "build_followup_prompt system prompt missing grounding constraint",
+        "expertise" in system.lower() or "knowledge" in system.lower(),
+        "build_followup_prompt system prompt missing expert reasoning allowance",
     )
 
     return violations
