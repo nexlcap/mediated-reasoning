@@ -107,11 +107,16 @@ class ModuleOutput(BaseModel):
     sources: List[str]
     revised: bool
 
+class ConflictArbitration(BaseModel):
+    authority: str   # module whose position is authoritative for this topic
+    reasoning: str   # one-sentence justification
+
 class Conflict(BaseModel):
     modules: List[str]          # e.g. ["market", "cost"]
     topic: str                  # e.g. "burn rate"
     description: str            # e.g. "Market sees high demand but cost flags high burn rate [1][2]"
     severity: Literal["critical", "high", "medium", "low"]
+    arbitration: Optional[ConflictArbitration] = None  # domain authority for this conflict
 
 class ConflictResolution(BaseModel):
     topic: str                      # conflict topic or red flag text
@@ -436,7 +441,7 @@ Several layers prevent LLM-fabricated sources and unsupported claims from appear
 - **URL-only source filter** — `_consolidate_sources()` drops any source entry without an `https://` URL. Tavily always returns URLs; sources without them are training-knowledge fabrications. Inline citations pointing to dropped sources are also removed (`drop_on_miss=True` in `_remap_citations`).
 - **Strict module prompt constraints** — `_module_json_instruction(has_search_context)` generates two distinct instructions: *with search context*: "sources MUST contain ONLY entries copied verbatim from the Grounded Research Context — do NOT add sources from training knowledge"; *without search context*: "sources array MUST BE EMPTY — do not fabricate source titles or URLs."
 - **Pre-consolidated source list for synthesis** — Before calling the synthesis LLM, all module sources are merged into a global list `[1]–[N]`. Synthesis receives this list with a `CRITICAL` instruction to cite only within range and return an empty sources array, preventing it from inventing new sources beyond what modules actually found.
-- **Follow-up constraint** — The `--interactive` follow-up system prompt explicitly says "answer strictly from the analysis provided — do not introduce new facts, statistics, or sources not present in the analysis."
+- **Follow-up grounding** — The `--interactive` follow-up system prompt uses the analysis as grounding context to stay consistent with what was concluded, but permits the LLM to draw on its own domain expertise and general knowledge to give concrete, actionable answers. It explicitly instructs the model not to refuse questions just because the analysis lacks specific data, and to reason from first principles where needed while flagging when it is going beyond the analysis.
 
 **Remaining structural limitations (unfixable by prompting):**
 
@@ -458,6 +463,11 @@ When modules are deactivated via `--weight module=0`, the synthesis must include
 
 ### Why structured Conflict objects instead of free-text?
 Conflicts were originally extracted as free-text strings in the synthesis prompt. This made them inconsistent — sometimes a paragraph, sometimes a bullet point, with no reliable way to identify which modules disagreed or how severe the conflict was. Switching to structured `Conflict` objects (`modules`, `topic`, `description`, `severity`) forces the LLM to produce machine-readable, consistent conflict data that can be filtered, sorted, and rendered uniformly across export formats.
+
+### Conflict arbitration: domain-based authority resolution
+When modules disagree, a conflict object now includes an optional `arbitration` field that identifies which module's position carries more weight for that specific topic. Each arbitration entry specifies: (1) `authority` — the module whose core domain makes it the most credible voice on that topic (e.g., "cost" for financial estimates, "tech" for implementation feasibility, "legal" for compliance matters), and (2) `reasoning` — a one-sentence justification for why that module is authoritative.
+
+**Why this matters:** Instead of treating all conflicts as equal, arbitration makes the synthesis reasoning more transparent: it acknowledges that on certain topics, one module's expertise should carry more credibility than another's disagreement, even though both perspectives are recorded. The arbitration guides synthesis but does not silence the other module's findings — it is a tie-breaker framework, not a silencer. This field is optional, populated during synthesis by the LLM when it identifies a clear domain-authority boundary.
 
 ### Why distinguish bot-blocked URLs from real failures in Layer 3?
 
