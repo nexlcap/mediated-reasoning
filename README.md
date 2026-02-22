@@ -4,7 +4,7 @@
 
 **Try it now:** [🔥 HuggingFace Space](https://huggingface.co/spaces/Yi47/mediated-reasoning) — no setup required, bring your own API key.
 
-Fusen is the AI co-founder for solo entrepreneurs and builders. It fuses the perspectives of five specialist AI advisors — market, technology, cost, legal, and scalability — into a single, structured recommendation. Three rounds of structured reasoning, zero blind spots.
+Fusen is the AI co-founder for solo entrepreneurs and builders. It assembles the right specialist advisors for your specific question, fuses their perspectives through three rounds of structured reasoning, and delivers a single, conflict-arbitrated recommendation — zero blind spots.
 
 Whether you're validating a startup idea, distilling market signals into product opportunities, or navigating the next phase of company building, Fusen covers every role so you don't have to hire for them.
 
@@ -12,9 +12,9 @@ Whether you're validating a startup idea, distilling market signals into product
 
 Three rounds of structured reasoning:
 
-1. **Round 1 — Independent Analysis:** Each specialist module analyses the problem independently, ensuring unbiased initial perspectives.
-2. **Round 2 — Informed Revision:** Modules see each other's Round 1 outputs and revise their analysis.
-3. **Round 3 — Synthesis:** The mediator identifies conflicts between modules, arbitrates them, flags critical issues (red/yellow/green), and generates final recommendations.
+1. **Round 1 — Independent Analysis:** Fusen selects the specialist perspectives your problem needs, then each analyses it independently — no groupthink.
+2. **Round 2 — Informed Revision:** Specialists see each other's outputs and revise their positions with full cross-domain context.
+3. **Round 3 — Synthesis:** Conflicts are identified and arbitrated, critical issues are flagged (red/yellow/green), and a final recommendation is generated.
 
 Modules run in parallel within each round via programmatic tool calling (PTC). LiteLLM is used as the LLM backend, supporting any provider out of the box — Anthropic (default), OpenAI, Google Gemini, Groq, or fully local models via Ollama (no API key required). A web search pre-pass grounds each module's analysis in real, cited sources (DuckDuckGo by default — no API key required; Tavily opt-in for higher quality). A structural quality gate scores every run on source survival, module completion, and critical flag density, and displays the result (`good` / `degraded` / `poor`) at the end of every output.
 
