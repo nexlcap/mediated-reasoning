@@ -48,7 +48,7 @@ def _parse_weights(weights_str: str) -> dict:
 def run_analysis(
     problem, model, module_model_choice, api_key,
     report_style, auto_select, no_search, deep_research,
-    repeat_prompt, weights_str, tavily_key, user_context,
+    repeat_prompt, tavily_key, user_context,
 ):
     if not problem.strip():
         yield "Please enter a problem.", "", gr.update(visible=False), None, None
@@ -57,11 +57,7 @@ def run_analysis(
         yield "Please enter your API key.", "", gr.update(visible=False), None, None
         return
 
-    try:
-        weights = _parse_weights(weights_str) if weights_str.strip() else {}
-    except ValueError as e:
-        yield str(e), "", gr.update(visible=False), None, None
-        return
+    weights = {}
 
     key = api_key.strip()
     module_model = None if module_model_choice == "(same as main model)" else module_model_choice
@@ -183,11 +179,6 @@ with gr.Blocks(title="Mediated Reasoning") as demo:
             search_cb = gr.Checkbox(label="Skip web search",     value=False)
             deep_cb   = gr.Checkbox(label="Deep research",       value=True)
             repeat_cb = gr.Checkbox(label="Repeat prompt",       value=True)
-        weights_input = gr.Textbox(
-            label="Module weights (e.g. legal=2, market=0)",
-            placeholder="legal=2, market=0.5",
-            lines=1,
-        )
         tavily_input = gr.Textbox(
             label="Tavily API key (optional — higher-quality search)",
             placeholder="tvly-…",
@@ -213,7 +204,7 @@ with gr.Blocks(title="Mediated Reasoning") as demo:
         inputs=[
             problem_input, model_dd, module_model_dd, api_key_input,
             report_radio, auto_cb, search_cb, deep_cb,
-            repeat_cb, weights_input, tavily_input, context_input,
+            repeat_cb, tavily_input, context_input,
         ],
         outputs=[report_out, stats_out, followup_group, result_state, mediator_state],
     )
