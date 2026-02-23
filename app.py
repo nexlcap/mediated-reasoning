@@ -157,21 +157,23 @@ body,
     align-items: flex-end !important;
 }
 
-/* ── Resizable sidebars ── */
-#settings-sidebar {
+/* ── Resizable sidebars ──
+   overflow is applied only when .open so the absolutely-positioned
+   toggle button (left:100% when closed) is never clipped. ── */
+#settings-sidebar.open {
     resize: horizontal !important;
     overflow: auto !important;
     min-width: 200px !important;
     max-width: 650px !important;
 }
-#detail-sidebar {
+#detail-sidebar.open {
     direction: rtl !important;
     resize: horizontal !important;
     overflow: auto !important;
     min-width: 200px !important;
     max-width: 650px !important;
 }
-#detail-sidebar > * { direction: ltr !important; }
+#detail-sidebar.open > * { direction: ltr !important; }
 
 /* ── Modals ── */
 .modal-overlay > div.gr-group,
