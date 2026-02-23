@@ -35,7 +35,7 @@ def main():
         description="Mediated Reasoning System - Multi-perspective problem analysis"
     )
     parser.add_argument("problem", nargs="?", help="The problem or idea to analyze")
-    parser.add_argument("--model", default=DEFAULT_MODEL, help=f"LiteLLM model string for synthesis (default: {DEFAULT_MODEL}). Examples: gpt-4o, ollama/llama3.3, together_ai/meta-llama/Llama-3-70b-chat-hf")
+    parser.add_argument("--model", default=DEFAULT_MODEL, help=f"LiteLLM model string for synthesis (default: {DEFAULT_MODEL}). Examples: claude-opus-4-6, gpt-4o, ollama/llama3.3")
     parser.add_argument("--module-model", default="", help="LiteLLM model string for module analysis calls (default: same as --model). Examples: claude-haiku-4-5-20251001, gpt-4o-mini, ollama/phi4")
     parser.add_argument("--context", default="", metavar="TEXT", help="User context and constraints (e.g. 'Bootstrapped SaaS, 2 co-founders, $8k MRR, B2B'). Injected into every LLM call so recommendations are calibrated to your situation.")
     parser.add_argument("--context-file", default="", metavar="PATH", help="Path to a file containing user context (alternative to --context for longer profiles)")

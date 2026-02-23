@@ -34,7 +34,7 @@ logger = get_logger(__name__)
 #   OpenAI    : gpt-4o, gpt-4o-mini
 #   Ollama    : ollama/llama3.3, ollama/phi4, ollama/qwen2.5:72b
 #   Together  : together_ai/meta-llama/Llama-3-70b-chat-hf
-DEFAULT_MODEL = "claude-sonnet-4-20250514"
+DEFAULT_MODEL = "claude-sonnet-4-6"
 
 
 class ClaudeClient:
