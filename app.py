@@ -48,7 +48,7 @@ def _parse_weights(weights_str: str) -> dict:
 def run_analysis(
     problem, model, module_model_choice, api_key,
     report_style, auto_select, no_search, deep_research,
-    repeat_prompt, weights_str, tavily_key,
+    repeat_prompt, weights_str, tavily_key, user_context,
 ):
     if not problem.strip():
         yield "Please enter a problem.", "", gr.update(visible=False), None, None
@@ -83,6 +83,7 @@ def run_analysis(
         repeat_prompt=repeat_prompt,
         tavily_api_key=tavily_key.strip() or None,
         on_progress=on_progress,
+        user_context=user_context.strip() or None,
     )
 
     def run():
@@ -151,6 +152,12 @@ with gr.Blocks(title="Mediated Reasoning") as demo:
             scale=3,
         )
 
+    context_input = gr.Textbox(
+        label="Your context (optional)",
+        placeholder="e.g. Bootstrapped SaaS, 2 co-founders, $8k MRR, B2B — keeps recommendations actionable",
+        lines=2,
+    )
+
     with gr.Row():
         model_dd = gr.Dropdown(choices=MODELS, value=DEFAULT_MODEL, label="Model")
         module_model_dd = gr.Dropdown(
@@ -206,7 +213,7 @@ with gr.Blocks(title="Mediated Reasoning") as demo:
         inputs=[
             problem_input, model_dd, module_model_dd, api_key_input,
             report_radio, auto_cb, search_cb, deep_cb,
-            repeat_cb, weights_input, tavily_input,
+            repeat_cb, weights_input, tavily_input, context_input,
         ],
         outputs=[report_out, stats_out, followup_group, result_state, mediator_state],
     )
