@@ -7,7 +7,6 @@ import gradio as gr
 from src.llm.client import ClaudeClient
 from src.mediator import Mediator
 from src.utils.formatters import (
-    format_customer_report,
     format_detailed_report,
     format_final_analysis,
 )
@@ -20,14 +19,15 @@ MODELS = [
     "claude-haiku-4-5-20251001",
     "gpt-4o",
     "gpt-4o-mini",
+    "xai/grok-2",
+    "xai/grok-3",
 ]
 
 MODULE_MODEL_CHOICES = ["(same as main model)"] + MODELS
 
 FORMATTERS = {
-    "Standard":        format_final_analysis,
-    "Detailed":        format_detailed_report,
-    "Customer-facing": format_customer_report,
+    "Standard": format_final_analysis,
+    "Detailed": format_detailed_report,
 }
 
 
@@ -167,22 +167,22 @@ with gr.Blocks(title="Mediated Reasoning") as demo:
         )
         api_key_input = gr.Textbox(
             label="API key",
-            placeholder="sk-ant-… for Claude · sk-… for GPT",
+            placeholder="sk-ant-… for Claude · sk-… for GPT · xai-… for Grok",
             type="password",
             scale=2,
         )
 
     with gr.Accordion("Advanced options", open=False):
         report_radio = gr.Radio(
-            choices=["Standard", "Detailed", "Customer-facing"],
+            choices=["Standard", "Detailed"],
             value="Standard",
             label="Report style",
         )
         with gr.Row():
-            auto_cb      = gr.Checkbox(label="Auto-select modules",  value=False)
-            search_cb    = gr.Checkbox(label="Skip web search",       value=False)
-            deep_cb      = gr.Checkbox(label="Deep research",         value=False)
-            repeat_cb    = gr.Checkbox(label="Repeat prompt",         value=True)
+            auto_cb   = gr.Checkbox(label="Auto-select modules", value=True)
+            search_cb = gr.Checkbox(label="Skip web search",     value=False)
+            deep_cb   = gr.Checkbox(label="Deep research",       value=True)
+            repeat_cb = gr.Checkbox(label="Repeat prompt",       value=True)
         weights_input = gr.Textbox(
             label="Module weights (e.g. legal=2, market=0)",
             placeholder="legal=2, market=0.5",
