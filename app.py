@@ -86,14 +86,21 @@ def run_analysis(
         try:
             result = mediator.analyze(problem)
             status_q.put(("done", result))
-        except Exception as e:
+        except BaseException as e:
             status_q.put(("error", str(e)))
 
-    threading.Thread(target=run, daemon=True).start()
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
 
     log_lines = []
     while True:
-        item = status_q.get()
+        try:
+            item = status_q.get(timeout=5)
+        except Exception:
+            if not worker.is_alive():
+                yield "Error: analysis thread exited unexpectedly.", "", gr.update(visible=False), None, None
+                return
+            continue
         kind = item[0]
 
         if kind == "status":
