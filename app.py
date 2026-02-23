@@ -22,9 +22,7 @@ from src.utils.formatters import (
     format_sources_md,
 )
 
-# Default location for named projects
 PROJECTS_DIR = Path.home() / ".fusen" / "projects"
-
 ANSI_RE = re.compile(r'\033\[[0-9;]*m')
 
 MODELS = [
@@ -36,14 +34,13 @@ MODELS = [
     "xai/grok-2",
     "xai/grok-3",
 ]
-
 MODULE_MODEL_CHOICES = ["(same as main model)"] + MODELS
 
 
+# ── CSS ───────────────────────────────────────────────────────────────────────
 _CSS = """
 @import url('https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap');
 
-/* ── Inter across the whole UI ── */
 body,
 .gradio-container,
 .gradio-container p,
@@ -60,7 +57,7 @@ body,
                  BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
 }
 
-/* ── Gradient app header ── */
+/* ── App header ── */
 .fusen-header { padding: 20px 0 8px 0; }
 .fusen-title {
     font-size: 1.9em;
@@ -73,19 +70,10 @@ body,
     margin: 0 0 4px 0;
     line-height: 1.2;
 }
-.fusen-sub {
-    color: var(--body-text-color-subdued, #777);
-    font-size: 0.9em;
-    margin: 2px 0 0 0;
-}
-.fusen-tagline {
-    color: var(--body-text-color-subdued, #aaa);
-    font-size: 0.82em;
-    font-style: italic;
-    margin: 1px 0 0 0;
-}
+.fusen-sub    { color: var(--body-text-color-subdued, #777); font-size: 0.9em;  margin: 2px 0 0 0; }
+.fusen-tagline{ color: var(--body-text-color-subdued, #aaa); font-size: 0.82em; font-style: italic; margin: 1px 0 0 0; }
 
-/* ── Analyze button gradient ── */
+/* ── Analyze button ── */
 .analyze-btn button {
     background: linear-gradient(135deg, #f97316 0%, #ec4899 100%) !important;
     border: none !important;
@@ -114,7 +102,7 @@ body,
     100% { background-position: 0%   50%; }
 }
 
-/* ── Pipeline animation (used in main canvas during analysis) ── */
+/* ── Pipeline animation ── */
 .pipe-header {
     background: linear-gradient(270deg, #f97316, #ec4899, #8b5cf6, #3b82f6);
     background-size: 400% 400%;
@@ -138,8 +126,7 @@ body,
 }
 .pipe-step:last-child { border-bottom: none; }
 .pipe-dot {
-    width: 9px;
-    height: 9px;
+    width: 9px; height: 9px;
     border-radius: 50%;
     margin-top: 4px;
     flex-shrink: 0;
@@ -151,11 +138,7 @@ body,
     animation: dotPulse 1s ease infinite;
     box-shadow: 0 0 0 4px rgba(249, 115, 22, 0.18);
 }
-.pipe-text {
-    font-size: 0.85em;
-    line-height: 1.45;
-    color: var(--body-text-color, #333);
-}
+.pipe-text       { font-size: 0.85em; line-height: 1.45; color: var(--body-text-color, #333); }
 .pipe-done .pipe-text { color: var(--body-text-color-subdued, #999); }
 .status-error {
     color: #dc2626;
@@ -164,13 +147,9 @@ body,
     font-size: 0.9em;
 }
 
-/* ── Follow-up conversation area ── */
-.follow-qa-area {
-    margin-top: 8px;
-}
+/* ── Follow-up area ── */
+.follow-qa-area { margin-top: 8px; }
 .follow-qa-area p { line-height: 1.65; }
-
-/* ── Follow-up input row ── */
 .followup-row {
     margin-top: 16px;
     padding-top: 16px;
@@ -178,15 +157,13 @@ body,
     align-items: flex-end !important;
 }
 
-/* ── Resizable left sidebar ── */
+/* ── Resizable sidebars ── */
 #settings-sidebar {
     resize: horizontal !important;
     overflow: auto !important;
     min-width: 200px !important;
     max-width: 650px !important;
 }
-
-/* ── Resizable right sidebar (handle on left edge via rtl trick) ── */
 #detail-sidebar {
     direction: rtl !important;
     resize: horizontal !important;
@@ -196,7 +173,7 @@ body,
 }
 #detail-sidebar > * { direction: ltr !important; }
 
-/* ── Modal backdrop ── */
+/* ── Modals ── */
 .modal-overlay > div.gr-group,
 .modal-overlay {
     position: fixed !important;
@@ -225,6 +202,51 @@ body,
 }
 """
 
+# ── JavaScript: add title-attribute tooltips after Gradio renders ─────────────
+_JS = """
+function() {
+    const TIPS = {
+        "api-key":          "Your Anthropic / OpenAI / xAI API key — never stored or shared",
+        "context":          "Background about your situation (stage, budget, constraints) — prepended to every analysis",
+        "context-expand":   "Open in a larger editing window",
+        "projects-dd":      "Pick an existing project to load its accumulated brief",
+        "create-new-cb":    "Enable to save this session under a new named project",
+        "project-name":     "Name for the new project folder (letters, numbers, hyphens)",
+        "save-location":    "Parent directory where the project folder will be created (default: ~/.fusen/projects/)",
+        "browse-save":      "Open the system folder picker to choose a save location",
+        "custom-path":      "Full path to any folder — load or create a project there regardless of the named-project system",
+        "browse-open":      "Open the system folder picker to choose a project folder",
+        "load-btn":         "Load the project brief from disk, or create the folder and a blank brief if it doesn't exist yet",
+        "brief":            "Living one-page project summary — rewritten by the AI after each session, always editable by you",
+        "brief-expand":     "Open in a larger editing window",
+        "save-session":     "Append this session to the log and ask the AI to rewrite the project brief",
+        "model-dd":         "Main LLM used for synthesis and the final report",
+        "module-model-dd":  "Separate (typically cheaper) model for specialist rounds — leave as (same) for best quality",
+        "report-radio":     "Standard: Round 2 + synthesis only.  Detailed: all rounds shown in the right sidebar",
+        "auto-cb":          "Let the AI choose the most relevant specialist lenses for your specific problem",
+        "search-cb":        "Disable web search — runs faster but recommendations won't cite live sources",
+        "deep-cb":          "Run an extra conflict-resolution pass to reconcile disagreements between specialists",
+        "repeat-cb":        "Re-send the original question to synthesis — measurably improves quality (arxiv 2512.14982)",
+        "tavily":           "Optional Tavily premium search key — higher-quality citations than the default DuckDuckGo fallback",
+        "problem":          "State the problem, idea, or decision you want analysed from multiple expert angles",
+        "analyze-btn":      "Run a full multi-specialist analysis (typically 30–120 s depending on model and depth)",
+        "show-detail":      "Load the specialist-by-specialist breakdown into the right sidebar",
+        "show-qa":          "Load the full follow-up Q&A history into the right sidebar",
+        "followup":         "Ask a follow-up question — the analysis context is kept so answers are grounded",
+        "followup-btn":     "Send your follow-up question"
+    };
+    function applyTips() {
+        for (const [id, tip] of Object.entries(TIPS)) {
+            const el = document.getElementById(id);
+            if (el) el.title = tip;
+        }
+    }
+    applyTips();
+    setTimeout(applyTips, 800);
+    setTimeout(applyTips, 3000);
+}
+"""
+
 _HEADER_HTML = """
 <div class="fusen-header">
   <div class="fusen-title">🔥 Fusen</div>
@@ -234,6 +256,7 @@ _HEADER_HTML = """
 """
 
 
+# ── Helpers ───────────────────────────────────────────────────────────────────
 def _parse_weights(weights_str: str) -> dict:
     weights = {}
     for part in weights_str.split(","):
@@ -268,7 +291,6 @@ def _list_projects() -> List[str]:
 
 
 def _status_html(lines: List[str]) -> str:
-    """Pipeline-style animation for the main canvas."""
     if not lines:
         return ""
     steps = "".join(
@@ -282,23 +304,17 @@ def _status_html(lines: List[str]) -> str:
     return (
         f'<div class="pipeline">'
         f'<div class="pipe-header">✦ Analysing your question…</div>'
-        f'{steps}'
-        f'</div>'
+        f'{steps}</div>'
     )
 
 
 def _format_follow_qa_md(qa_history: List[QAPair]) -> str:
-    """Render Q&A history as a flowing conversation (ChatGPT style)."""
     if not qa_history:
         return ""
-    parts = []
-    for q, a in qa_history:
-        parts.append(f"---\n\n**You:** {q}\n\n{a}")
-    return "\n\n".join(parts)
+    return "\n\n".join(f"---\n\n**You:** {q}\n\n{a}" for q, a in qa_history)
 
 
 def _format_qa_right(qa_history: List[QAPair]) -> str:
-    """Format Q&A history for the right sidebar."""
     if not qa_history:
         return "*No follow-up questions yet.*"
     md = "### Follow-up history\n\n"
@@ -323,27 +339,34 @@ def _show_qa_in_sidebar(qa_history) -> str:
         return f"*Error: {e}*"
 
 
+# ── Project helpers ───────────────────────────────────────────────────────────
 def load_project(selected_name: str, new_name: str, save_location: str, custom_path: str) -> Tuple:
     custom_path = (custom_path or "").strip()
     if custom_path:
-        project_dir = Path(custom_path).expanduser().resolve()
+        project_dir  = Path(custom_path).expanduser().resolve()
         display_name = project_dir.name
     else:
         name = (new_name or selected_name or "").strip()
         name = re.sub(r"[^\w\- ]", "", name).strip()
         if not name:
             return "", "Enter a project name, paste a path, or select an existing one.", None, gr.update()
-        parent = Path((save_location or "").strip()).expanduser().resolve() if (save_location or "").strip() else PROJECTS_DIR
-        project_dir = parent / name
+        parent = (
+            Path((save_location or "").strip()).expanduser().resolve()
+            if (save_location or "").strip() else PROJECTS_DIR
+        )
+        project_dir  = parent / name
         display_name = name
     try:
         is_new = not project_dir.exists()
-        pm = ProjectMemory(str(project_dir))
-        brief = pm.load()
-        new_choices = _list_projects()
-        verb = "Created" if is_new else "Loaded"
-        status = f"{verb}: **{display_name}**  (`{project_dir}`)"
-        return brief, status, pm, gr.update(choices=new_choices, value=display_name if not custom_path else None)
+        pm     = ProjectMemory(str(project_dir))
+        brief  = pm.load()
+        verb   = "Created" if is_new else "Loaded"
+        return (
+            brief,
+            f"{verb}: **{display_name}**  (`{project_dir}`)",
+            pm,
+            gr.update(choices=_list_projects(), value=display_name if not custom_path else None),
+        )
     except Exception as e:
         return "", f"Error: {e}", None, gr.update()
 
@@ -359,70 +382,57 @@ def save_project_session(
         return "", "Run an analysis first."
     try:
         project_memory.save_session(result, qa_history or [])
-        client = ClaudeClient(model=model, api_key=api_key.strip() or None)
+        client    = ClaudeClient(model=model, api_key=api_key.strip() or None)
         new_brief = project_memory.update_brief(client, result, qa_history or [])
         return new_brief or "", "Session saved and brief updated."
     except Exception as e:
         return "", f"Error saving session: {e}"
 
 
+# ── Analysis ──────────────────────────────────────────────────────────────────
 def run_analysis(
     problem, model, module_model_choice, api_key,
     report_style, auto_select, no_search, deep_research,
     repeat_prompt, tavily_key, user_context,
     project_memory, brief_text,
 ):
-    # 10 outputs:
-    # status_html · core_out · right_detail_md · right_stats_md
-    # status_group · results_group
-    # follow_qa_md
-    # result_state · mediator_state · qa_history_state
+    # 10 outputs: status_html · core_out · right_detail_md · right_stats_md
+    #             status_group · results_group · follow_qa_md
+    #             result_state · mediator_state · qa_history_state
 
     def _progress(log_lines):
-        return (
-            _status_html(log_lines), "", "", "",
-            gr.update(visible=True), gr.update(visible=False),
-            "",
-            None, None, [],
-        )
+        return (_status_html(log_lines), "", "", "",
+                gr.update(visible=True), gr.update(visible=False), "",
+                None, None, [])
 
     def _error(msg):
-        return (
-            f"<div class='status-error'>⚠ {msg}</div>", "", "", "",
-            gr.update(visible=True), gr.update(visible=False),
-            "",
-            None, None, [],
-        )
+        return (f"<div class='status-error'>⚠ {msg}</div>", "", "", "",
+                gr.update(visible=True), gr.update(visible=False), "",
+                None, None, [])
 
     if not problem.strip():
-        yield _error("Please enter a problem.")
-        return
+        yield _error("Please enter a problem."); return
     if not api_key.strip():
-        yield _error("Please enter your API key.")
-        return
+        yield _error("Please enter your API key."); return
 
     effective_context = (user_context or "").strip()
     if project_memory is not None and brief_text and brief_text.strip():
         brief_ctx = f"Project brief:\n{brief_text.strip()}"
         effective_context = brief_ctx + ("\n\n" + effective_context if effective_context else "")
 
-    key = api_key.strip()
+    key          = api_key.strip()
     module_model = None if module_model_choice == "(same as main model)" else module_model_choice
-
-    status_q = queue.Queue()
+    status_q     = queue.Queue()
 
     def on_progress(msg):
         status_q.put(("status", msg))
 
-    client = ClaudeClient(model=model, api_key=key)
+    client        = ClaudeClient(model=model, api_key=key)
     module_client = ClaudeClient(model=module_model, max_tokens=2048, api_key=key) if module_model else None
-    mediator = Mediator(
-        client,
-        weights={},
-        auto_select=auto_select,
-        search=not no_search,
-        deep_research=deep_research,
-        module_client=module_client,
+    mediator      = Mediator(
+        client, weights={},
+        auto_select=auto_select, search=not no_search,
+        deep_research=deep_research, module_client=module_client,
         repeat_prompt=repeat_prompt,
         tavily_api_key=(tavily_key or "").strip() or None,
         on_progress=on_progress,
@@ -431,149 +441,151 @@ def run_analysis(
 
     def run():
         try:
-            result = mediator.analyze(problem)
-            status_q.put(("done", result))
+            status_q.put(("done", mediator.analyze(problem)))
         except BaseException as e:
             status_q.put(("error", str(e)))
 
-    worker = threading.Thread(target=run, daemon=True)
-    worker.start()
+    threading.Thread(target=run, daemon=True).start()
 
     log_lines = []
     while True:
         try:
             item = status_q.get(timeout=5)
         except Exception:
-            if not worker.is_alive():
-                yield _error("Analysis thread exited unexpectedly.")
-                return
+            if not threading.active_count():
+                yield _error("Analysis thread exited unexpectedly."); return
             continue
-        kind = item[0]
 
+        kind = item[0]
         if kind == "status":
             log_lines.append(item[1])
             yield _progress(log_lines)
-
         elif kind == "error":
-            yield _error(item[1])
-            return
-
+            yield _error(item[1]); return
         elif kind == "done":
-            result = item[1]
+            result    = item[1]
             core_md   = format_core_md(result)
             detail_md = format_detail_md(result, detailed=(report_style == "Detailed"))
-
-            q = result.quality
-            tier_emoji = {"good": "✅", "degraded": "⚠️", "poor": "❌"}.get(q.tier if q else "", "")
-            stats = ""
+            q         = result.quality
+            te        = {"good": "✅", "degraded": "⚠️", "poor": "❌"}.get(q.tier if q else "", "")
+            stats     = ""
             if q:
-                stats += f"{tier_emoji} **Quality:** {q.tier} ({q.score:.2f})&ensp;"
+                stats += f"{te} **Quality:** {q.tier} ({q.score:.2f})&ensp;"
             if result.timing:
                 stats += f"⏱ **Time:** {result.timing.total_s:.0f}s&ensp;"
             if result.token_usage:
-                total_tok = result.token_usage.total_input + result.token_usage.total_output
-                stats += f"🔢 **Tokens:** {total_tok:,}"
-
+                stats += f"🔢 **Tokens:** {result.token_usage.total_input + result.token_usage.total_output:,}"
             sources_md = format_sources_md(result)
             right_top  = stats + ("\n\n---\n\n" + sources_md if sources_md else "")
-
-            yield (
-                "", core_md, detail_md, right_top,
-                gr.update(visible=False), gr.update(visible=True),
-                "",
-                result, mediator, [],
-            )
+            yield ("", core_md, detail_md, right_top,
+                   gr.update(visible=False), gr.update(visible=True), "",
+                   result, mediator, [])
             return
 
 
 def run_followup(question, result, mediator, qa_history: List[QAPair]):
-    """Returns (follow_qa_md, qa_history_state, cleared_input, right_detail_md)."""
     history = list(qa_history or [])
     if result is None or mediator is None:
         return _format_follow_qa_md(history), history, question, gr.update()
     if not question.strip():
         return _format_follow_qa_md(history), history, "", gr.update()
-    answer = mediator.followup(result, question.strip())
+    answer  = mediator.followup(result, question.strip())
     updated = history + [(question.strip(), ANSI_RE.sub('', answer))]
     return _format_follow_qa_md(updated), updated, "", _format_qa_right(updated)
 
 
-with gr.Blocks(title="Fusen", css=_CSS) as demo:
+# ── UI ────────────────────────────────────────────────────────────────────────
+with gr.Blocks(title="Fusen") as demo:
     result_state      = gr.State(None)
     mediator_state    = gr.State(None)
     qa_history_state  = gr.State([])
     project_mem_state = gr.State(None)
 
     # ── Left Sidebar ──────────────────────────────────────────────────────────
-    with gr.Sidebar(label="Settings", open=True, position="left", width=320, elem_id="settings-sidebar"):
+    with gr.Sidebar(label="Settings", open=True, position="left", width=320,
+                    elem_id="settings-sidebar"):
 
         api_key_input = gr.Textbox(
-            label="API key",
-            placeholder="sk-ant-… · sk-… · xai-…",
-            type="password",
+            label="API key", placeholder="sk-ant-… · sk-… · xai-…",
+            type="password", elem_id="api-key",
         )
-
         context_input = gr.Textbox(
             label="Additional context (optional)",
             placeholder="e.g. Bootstrapped SaaS, 2 co-founders, $8k MRR, B2B — keeps recommendations actionable",
-            lines=2,
+            lines=2, elem_id="context",
         )
-        context_expand_btn = gr.Button("⤢ Expand", size="sm", variant="secondary")
+        context_expand_btn = gr.Button("⤢ Expand", size="sm", variant="secondary",
+                                       elem_id="context-expand")
 
         with gr.Accordion("Project memory (optional)", open=False):
             with gr.Tabs():
                 with gr.Tab("Named project"):
                     existing_projects_dd = gr.Dropdown(
-                        label="Existing projects",
-                        choices=_list_projects(),
-                        value=None,
-                        allow_custom_value=False,
+                        label="Existing projects", choices=_list_projects(),
+                        value=None, allow_custom_value=False, elem_id="projects-dd",
                     )
-                    create_new_cb = gr.Checkbox(label="Save as new project", value=False)
+                    create_new_cb = gr.Checkbox(label="Save as new project", value=False,
+                                               elem_id="create-new-cb")
                     with gr.Group(visible=False) as new_project_group:
-                        new_project_name = gr.Textbox(label="Project name", placeholder="my-saas-idea")
+                        new_project_name = gr.Textbox(
+                            label="Project name", placeholder="my-saas-idea",
+                            elem_id="project-name",
+                        )
                         with gr.Row():
                             save_location_input = gr.Textbox(
-                                label="Save in", placeholder=str(PROJECTS_DIR), scale=3,
+                                label="Save in", placeholder=str(PROJECTS_DIR),
+                                scale=3, elem_id="save-location",
                             )
-                            browse_save_btn = gr.Button("Browse…", scale=1)
+                            browse_save_btn = gr.Button("Browse…", scale=1,
+                                                        elem_id="browse-save")
                 with gr.Tab("Any folder"):
                     with gr.Row():
                         custom_path_input = gr.Textbox(
                             label="Folder path",
                             placeholder="/home/you/projects/my-startup",
-                            interactive=True, scale=4,
+                            interactive=True, scale=4, elem_id="custom-path",
                         )
-                        browse_open_btn = gr.Button("Browse…", scale=1)
+                        browse_open_btn = gr.Button("Browse…", scale=1,
+                                                    elem_id="browse-open")
 
-            load_project_btn = gr.Button("Load / Create", variant="primary")
+            load_project_btn = gr.Button("Load / Create", variant="primary",
+                                         elem_id="load-btn")
             project_status = gr.Markdown()
             brief_area = gr.Textbox(
                 label="Project brief (auto-updated after each session, human-editable)",
-                lines=8, interactive=True,
+                lines=8, interactive=True, elem_id="brief",
             )
-            brief_expand_btn = gr.Button("⤢ Expand", size="sm", variant="secondary")
+            brief_expand_btn = gr.Button("⤢ Expand", size="sm", variant="secondary",
+                                         elem_id="brief-expand")
             with gr.Row():
-                save_session_btn = gr.Button("Save session + update brief")
+                save_session_btn = gr.Button("Save session + update brief",
+                                             elem_id="save-session")
                 save_status = gr.Markdown()
 
         with gr.Accordion("Advanced options", open=False):
-            model_dd = gr.Dropdown(choices=MODELS, value=MODELS[0], label="Model")
-            module_model_dd = gr.Dropdown(
-                choices=MODULE_MODEL_CHOICES, value="(same as main model)", label="Module model",
+            model_dd = gr.Dropdown(
+                choices=MODELS, value=MODELS[0], label="Model", elem_id="model-dd",
             )
-            report_radio = gr.Radio(choices=["Standard", "Detailed"], value="Standard", label="Report style")
-            auto_cb   = gr.Checkbox(label="Auto-select modules", value=True)
-            search_cb = gr.Checkbox(label="Skip web search",     value=False)
-            deep_cb   = gr.Checkbox(label="Deep research",       value=True)
-            repeat_cb = gr.Checkbox(label="Repeat prompt",       value=True)
+            module_model_dd = gr.Dropdown(
+                choices=MODULE_MODEL_CHOICES, value="(same as main model)",
+                label="Module model", elem_id="module-model-dd",
+            )
+            report_radio = gr.Radio(
+                choices=["Standard", "Detailed"], value="Standard",
+                label="Report style", elem_id="report-radio",
+            )
+            auto_cb   = gr.Checkbox(label="Auto-select modules", value=True,  elem_id="auto-cb")
+            search_cb = gr.Checkbox(label="Skip web search",     value=False, elem_id="search-cb")
+            deep_cb   = gr.Checkbox(label="Deep research",       value=True,  elem_id="deep-cb")
+            repeat_cb = gr.Checkbox(label="Repeat prompt",       value=True,  elem_id="repeat-cb")
             tavily_input = gr.Textbox(
                 label="Tavily API key (optional — higher-quality search)",
-                placeholder="tvly-…", type="password",
+                placeholder="tvly-…", type="password", elem_id="tavily",
             )
 
     # ── Right Sidebar ─────────────────────────────────────────────────────────
-    with gr.Sidebar(label="Detail", open=True, position="right", width=400, elem_id="detail-sidebar"):
+    with gr.Sidebar(label="Detail", open=True, position="right", width=400,
+                    elem_id="detail-sidebar"):
         right_stats_md  = gr.Markdown()
         right_detail_md = gr.Markdown("*Run an analysis to see details here.*")
 
@@ -583,33 +595,31 @@ with gr.Blocks(title="Fusen", css=_CSS) as demo:
     problem_input = gr.Textbox(
         show_label=False,
         placeholder="Describe the problem or idea you want to analyse — e.g. Should I build a B2B SaaS for restaurant inventory management?",
-        lines=4,
+        lines=4, elem_id="problem",
     )
-    submit_btn = gr.Button("Analyze", variant="primary", size="lg", elem_classes=["analyze-btn"])
+    submit_btn = gr.Button("Analyze", variant="primary", size="lg",
+                           elem_classes=["analyze-btn"], elem_id="analyze-btn")
 
-    # Status: pipeline animation, visible only while analysis runs
     with gr.Group(visible=False) as status_group:
         status_html = gr.HTML()
 
-    # Results: revealed when analysis completes, contains everything incl. follow-up
     with gr.Group(visible=False) as results_group:
         core_out = gr.Markdown()
-
         with gr.Row():
-            show_detail_btn = gr.Button("📊 Analysis detail",   size="sm", variant="secondary")
-            show_qa_btn     = gr.Button("💬 Follow-up history", size="sm", variant="secondary")
+            show_detail_btn = gr.Button("📊 Analysis detail",   size="sm",
+                                        variant="secondary", elem_id="show-detail")
+            show_qa_btn     = gr.Button("💬 Follow-up history", size="sm",
+                                        variant="secondary", elem_id="show-qa")
 
-        # Flowing Q&A conversation (ChatGPT style — no explicit section header)
         follow_qa_md = gr.Markdown("", elem_classes=["follow-qa-area"])
 
         with gr.Row(elem_classes=["followup-row"]):
             followup_input = gr.Textbox(
-                show_label=False,
-                placeholder="Ask a follow-up question…",
-                lines=1,
-                scale=9,
+                show_label=False, placeholder="Ask a follow-up question…",
+                lines=1, scale=9, elem_id="followup",
             )
-            followup_btn = gr.Button("↵", scale=1, variant="secondary")
+            followup_btn = gr.Button("↵", scale=1, variant="secondary",
+                                     elem_id="followup-btn")
 
     # ── Modals ────────────────────────────────────────────────────────────────
     with gr.Group(visible=False, elem_classes=["modal-overlay"]) as context_modal:
@@ -654,8 +664,7 @@ with gr.Blocks(title="Fusen", css=_CSS) as demo:
         ],
         outputs=[
             status_html, core_out, right_detail_md, right_stats_md,
-            status_group, results_group,
-            follow_qa_md,
+            status_group, results_group, follow_qa_md,
             result_state, mediator_state, qa_history_state,
         ],
     )
@@ -672,14 +681,13 @@ with gr.Blocks(title="Fusen", css=_CSS) as demo:
     show_qa_btn.click(
         fn=_show_qa_in_sidebar, inputs=[qa_history_state], outputs=[right_detail_md],
     )
-
     save_session_btn.click(
         fn=save_project_session,
-        inputs=[result_state, mediator_state, qa_history_state, project_mem_state, api_key_input, model_dd],
+        inputs=[result_state, mediator_state, qa_history_state,
+                project_mem_state, api_key_input, model_dd],
         outputs=[brief_area, save_status],
     )
 
-    # ── Modal wiring ──────────────────────────────────────────────────────────
     context_expand_btn.click(
         fn=lambda v: (gr.update(visible=True), v),
         inputs=[context_input], outputs=[context_modal, context_modal_text],
@@ -691,7 +699,6 @@ with gr.Blocks(title="Fusen", css=_CSS) as demo:
     context_modal_cancel_btn.click(
         fn=lambda: gr.update(visible=False), inputs=[], outputs=[context_modal],
     )
-
     brief_expand_btn.click(
         fn=lambda v: (gr.update(visible=True), v),
         inputs=[brief_area], outputs=[brief_modal, brief_modal_text],
@@ -704,4 +711,5 @@ with gr.Blocks(title="Fusen", css=_CSS) as demo:
         fn=lambda: gr.update(visible=False), inputs=[], outputs=[brief_modal],
     )
 
-demo.launch(server_name="0.0.0.0", server_port=7860, ssr_mode=False, theme=gr.themes.Soft())
+demo.launch(server_name="0.0.0.0", server_port=7860, ssr_mode=False,
+            theme=gr.themes.Soft(), css=_CSS, js=_JS)
