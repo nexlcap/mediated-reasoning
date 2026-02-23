@@ -4,7 +4,7 @@ import threading
 
 import gradio as gr
 
-from src.llm.client import ClaudeClient, DEFAULT_MODEL
+from src.llm.client import ClaudeClient
 from src.mediator import Mediator
 from src.utils.formatters import (
     format_customer_report,
@@ -159,7 +159,7 @@ with gr.Blocks(title="Mediated Reasoning") as demo:
     )
 
     with gr.Row():
-        model_dd = gr.Dropdown(choices=MODELS, value=DEFAULT_MODEL, label="Model")
+        model_dd = gr.Dropdown(choices=MODELS, value=MODELS[0], label="Model")
         module_model_dd = gr.Dropdown(
             choices=MODULE_MODEL_CHOICES,
             value="(same as main model)",
