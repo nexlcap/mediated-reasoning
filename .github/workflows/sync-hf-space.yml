@@ -1,0 +1,36 @@
+name: Sync to HuggingFace Space
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: true
+
+      - name: Push to HuggingFace Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          git config --global user.email "ci@github"
+          git config --global user.name "GitHub CI"
+
+          # Clone the HF Space repo
+          git clone https://Yi47:${HF_TOKEN}@huggingface.co/spaces/Yi47/mediated-reasoning hf_space
+
+          # Sync app.py
+          cp app.py hf_space/app.py
+
+          cd hf_space
+          git add app.py
+          if git diff --cached --quiet; then
+            echo "No changes to sync."
+          else
+            git commit -m "Sync app.py from GitHub (${GITHUB_SHA::7})"
+            git push
+          fi
