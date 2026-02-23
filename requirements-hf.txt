@@ -1,0 +1,4 @@
+setuptools
+git+https://github.com/nexlcap/mediated-reasoning.git@COMMIT_SHA
+gradio>=6.6.0
+audioop-lts; python_version >= "3.13"

@@ -26,11 +26,14 @@ jobs:
           # Sync app.py
           cp app.py hf_space/app.py
 
+          # Pin requirements.txt to current commit SHA to force package reinstall
+          sed "s/COMMIT_SHA/${GITHUB_SHA}/" requirements-hf.txt > hf_space/requirements.txt
+
           cd hf_space
-          git add app.py
+          git add app.py requirements.txt
           if git diff --cached --quiet; then
             echo "No changes to sync."
           else
-            git commit -m "Sync app.py from GitHub (${GITHUB_SHA::7})"
+            git commit -m "Sync from GitHub (${GITHUB_SHA::7})"
             git push
           fi
