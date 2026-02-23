@@ -2,6 +2,7 @@ import argparse
 import os
 import subprocess
 import sys
+from typing import List, Optional
 
 from dotenv import load_dotenv
 
@@ -9,6 +10,7 @@ from src.llm.client import ClaudeClient, DEFAULT_MODEL
 from src.llm.prompts import ALL_MODULE_NAMES
 from src.mediator import Mediator
 from src.modules import MODULE_REGISTRY
+from src.project_memory import ProjectMemory, QAPair
 from src.utils.exporters import export_all
 from src.utils.formatters import format_customer_report, format_detailed_report, format_final_analysis, format_round_summary
 
@@ -47,6 +49,7 @@ def main():
     parser.add_argument("--list-modules", action="store_true", help="List fixed fallback modules and exit")
     parser.add_argument("--no-search", action="store_true", help="Skip web search pre-pass (disables grounded source fetching via Tavily)")
     parser.add_argument("--deep-research", action="store_true", help="After synthesis, run targeted web search on high/critical conflicts and red flags to produce evidence-based verdicts and updated recommendations")
+    parser.add_argument("--project", default="", metavar="PATH", help="Path to project memory directory (brief.md + session logs). Created on first use.")
     parser.add_argument("--run-label", default="", help="Tag for metrics comparison (e.g. 'pre-ptc', 'ptc'). Defaults to git short hash.")
     # Hidden escape hatches (always-on by default)
     parser.add_argument("--no-auto-select", action="store_true", help=argparse.SUPPRESS)
@@ -79,6 +82,16 @@ def main():
                 user_context = f.read().strip()
         except OSError as e:
             print(f"Warning: could not read context file: {e}", file=sys.stderr)
+
+    project_memory: Optional[ProjectMemory] = None
+    if args.project:
+        project_memory = ProjectMemory(args.project)
+        project_memory.load()
+        brief_ctx = project_memory.brief_as_context()
+        if user_context:
+            user_context = brief_ctx + "\n\n" + user_context
+        else:
+            user_context = brief_ctx
 
     client = ClaudeClient(model=args.model)
     module_client = ClaudeClient(model=args.module_model, max_tokens=2048) if args.module_model else None
@@ -124,6 +137,7 @@ def main():
 
     if args.interactive:
         print("\nInteractive mode — ask follow-up questions (type 'exit' to quit)")
+        qa_pairs: List[QAPair] = []
         while True:
             try:
                 question = input("> ").strip()
@@ -132,7 +146,11 @@ def main():
             if not question or question.lower() in ("exit", "quit"):
                 break
             response = mediator.followup(result, question)
+            qa_pairs.append((question, response))
             print(f"\n{response}\n")
+        if project_memory:
+            project_memory.save_session(result, qa_pairs)
+            project_memory.update_brief(client, result, qa_pairs)
 
 
 if __name__ == "__main__":

@@ -45,3 +45,4 @@ CLI tool using multi-agent mediated reasoning to analyze complex problems from m
 | 29 | Document / data input — feed a PDF, financial model, or research doc as grounding context alongside web search | Open |
 | 30 | Scenario / sensitivity analysis — structured what-if variants (e.g. "stress-test at 50% slower growth") without re-running from scratch | Open |
 | 31 | Recommendation follow-through — capture which recommendations were acted on, track outcomes, feed results back into future runs | Open |
+| 32 | Project memory — cross-session persistence with brief.md + session logs (`--project PATH`) | Done |

@@ -243,6 +243,78 @@ class TestUserContext:
             os.unlink(tmp_path)
 
 
+class TestProjectFlag:
+    @patch("src.main.export_all")
+    @patch("src.main.Mediator")
+    @patch("src.main.ClaudeClient")
+    def test_project_flag_loads_brief_into_user_context(self, mock_client_cls, mock_mediator_cls, mock_export, tmp_path):
+        """--project causes brief to be prepended to user_context passed to Mediator."""
+        mock_result = MagicMock()
+        mock_result.module_outputs = []
+        mock_mediator_cls.return_value.analyze.return_value = mock_result
+
+        project_dir = str(tmp_path / "proj")
+        with patch("sys.argv", ["prog", "test problem", "--project", project_dir]):
+            main()
+
+        _, kwargs = mock_mediator_cls.call_args
+        assert kwargs["user_context"] is not None
+        assert "Project brief" in kwargs["user_context"]
+
+    @patch("src.main.export_all")
+    @patch("src.main.Mediator")
+    @patch("src.main.ClaudeClient")
+    def test_project_flag_merges_with_context(self, mock_client_cls, mock_mediator_cls, mock_export, tmp_path):
+        """--project brief is prepended when --context is also given."""
+        mock_result = MagicMock()
+        mock_result.module_outputs = []
+        mock_mediator_cls.return_value.analyze.return_value = mock_result
+
+        project_dir = str(tmp_path / "proj")
+        with patch("sys.argv", [
+            "prog", "test", "--project", project_dir, "--context", "Bootstrapped"
+        ]):
+            main()
+
+        _, kwargs = mock_mediator_cls.call_args
+        ctx = kwargs["user_context"]
+        assert "Project brief" in ctx
+        assert "Bootstrapped" in ctx
+
+    @patch("src.main.export_all")
+    @patch("src.main.Mediator")
+    @patch("src.main.ClaudeClient")
+    def test_interactive_with_project_writes_session_file(
+        self, mock_client_cls, mock_mediator_cls, mock_export, tmp_path
+    ):
+        """Interactive mode + --project writes a session file on exit."""
+        mock_result = MagicMock()
+        mock_result.module_outputs = []
+        mock_result.problem = "Test"
+        mock_result.synthesis = "OK"
+        mock_result.recommendations = []
+        mock_mediator = mock_mediator_cls.return_value
+        mock_mediator.analyze.return_value = mock_result
+        mock_mediator.followup.return_value = "Some answer"
+
+        # Mock client.chat for update_brief
+        mock_client = mock_client_cls.return_value
+        mock_client.chat.return_value = "## Stage\nUpdated\n"
+
+        project_dir = str(tmp_path / "proj")
+        with patch("sys.argv", [
+            "prog", "test problem", "--project", project_dir, "--interactive"
+        ]):
+            with patch("builtins.input", side_effect=["What about costs?", "exit"]):
+                main()
+
+        sessions_dir = tmp_path / "proj" / "sessions"
+        session_files = list(sessions_dir.glob("*.md"))
+        assert len(session_files) == 1
+        content = session_files[0].read_text()
+        assert "What about costs?" in content
+
+
 class TestListModulesExpanded:
     def test_list_modules_shows_all_12(self, capsys):
         with patch("sys.argv", ["prog", "--list-modules"]):

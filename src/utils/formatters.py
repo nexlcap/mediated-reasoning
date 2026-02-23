@@ -408,6 +408,155 @@ def format_detailed_report(analysis: FinalAnalysis) -> str:
     return "\n".join(lines)
 
 
+def _flag_md(flag: str) -> str:
+    """Convert 'red: ...' flag to emoji + text for markdown rendering."""
+    lower = flag.lower()
+    if lower.startswith("red:"):
+        return "🔴 " + flag[4:].strip()
+    if lower.startswith("yellow:"):
+        return "🟡 " + flag[7:].strip()
+    if lower.startswith("green:"):
+        return "🟢 " + flag[6:].strip()
+    return flag
+
+
+def format_core_md(analysis: FinalAnalysis) -> str:
+    """Core result for the main canvas.
+    Flow: critical signals → analysis → recommended actions.
+    Sources are excluded — they live in the right sidebar.
+    """
+    parts: list[str] = []
+
+    # Signals sorted red → yellow → green so the most urgent land first
+    if analysis.priority_flags:
+        red    = [f for f in analysis.priority_flags if f.lower().startswith("red")]
+        yellow = [f for f in analysis.priority_flags if f.lower().startswith("yellow")]
+        green  = [f for f in analysis.priority_flags if f.lower().startswith("green")]
+        other  = [f for f in analysis.priority_flags
+                  if not f.lower().startswith(("red", "yellow", "green"))]
+        parts.append("## 🚦 Critical Signals")
+        for flag in red + yellow + green + other:
+            parts.append(f"- {_flag_md(flag)}")
+        parts.append("")
+
+    if analysis.synthesis:
+        if parts:
+            parts.append("---")
+            parts.append("")
+        parts.append("## 💡 Analysis")
+        parts.append("")
+        parts.append(analysis.synthesis)
+        parts.append("")
+
+    if analysis.recommendations:
+        parts.append("---")
+        parts.append("")
+        parts.append("## ✅ Recommended Actions")
+        parts.append("")
+        for i, rec in enumerate(analysis.recommendations, 1):
+            # Each recommendation as its own visual block
+            parts.append(f"**{i}.** {rec}")
+            parts.append("")
+
+    return "\n".join(parts)
+
+
+def format_sources_md(analysis: FinalAnalysis) -> str:
+    """Sources section for the right sidebar."""
+    if not analysis.sources:
+        return ""
+    parts = ["### 📚 Sources", ""]
+    for i, src in enumerate(analysis.sources, 1):
+        parts.append(f"**[{i}]** {src}")
+        parts.append("")
+    return "\n".join(parts)
+
+
+def format_detail_md(analysis: FinalAnalysis, detailed: bool = False) -> str:
+    """Collapsible detail panel: specialists → conflicts → deep research → module analyses → quality.
+    detailed=True also includes Round 1 outputs.
+    """
+    parts: list[str] = []
+
+    # Specialist panel
+    meta = analysis.selection_metadata
+    if meta and meta.auto_selected:
+        parts.append("### Specialists")
+        parts.append(f"**Selected:** {', '.join(meta.selected_modules)}")
+        if meta.selection_reasoning:
+            parts.append(f"\n**Reasoning:** {meta.selection_reasoning}")
+        if meta.ad_hoc_modules:
+            parts.append(f"\n**Gap-check additions:** {', '.join(m.name for m in meta.ad_hoc_modules)}")
+            if meta.gap_check_reasoning:
+                parts.append(f"\n**Gap reasoning:** {meta.gap_check_reasoning}")
+        parts.append("")
+
+    # Conflicts
+    if analysis.conflicts:
+        parts.append("### Conflicts")
+        severity_icon = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "⚪"}
+        for c in analysis.conflicts:
+            icon = severity_icon.get(c.severity, "")
+            modules = " vs ".join(c.modules)
+            parts.append(f"**{icon} [{c.severity.upper()}]** {modules} — {c.topic}")
+            parts.append(f"> {c.description}")
+            if c.arbitration:
+                parts.append(
+                    f"> → Authority: **{c.arbitration.authority}** — {c.arbitration.reasoning}"
+                )
+            parts.append("")
+
+    # Deep research resolutions
+    if analysis.conflict_resolutions:
+        parts.append("### Deep Research Resolutions")
+        for res in analysis.conflict_resolutions:
+            if res.modules:
+                label = f"[{res.severity.upper()}] {' vs '.join(res.modules)} — {res.topic}"
+            else:
+                label = f"[RED FLAG] {res.topic}"
+            parts.append(f"**{label}**")
+            parts.append(f"**Verdict:** {res.verdict}")
+            parts.append(f"**Updated recommendation:** {res.updated_recommendation}")
+            parts.append("")
+
+    # Module analyses — prefer R2; include R1 only when detailed=True
+    r2_names = {o.module_name for o in analysis.module_outputs if o.round == 2}
+    to_show = []
+    for o in analysis.module_outputs:
+        if o.round == 2:
+            to_show.append(o)
+        elif o.round == 1 and (detailed or o.module_name not in r2_names):
+            to_show.append(o)
+
+    if to_show:
+        parts.append("### Specialist Analyses")
+        for o in to_show:
+            round_label = "*(Round 2 — revised)*" if o.round == 2 else "*(Round 1)*"
+            parts.append(f"#### {o.module_name} {round_label}")
+            for key, value in o.analysis.items():
+                if isinstance(value, list):
+                    parts.append(f"**{key}:**")
+                    for item in value:
+                        parts.append(f"- {item}")
+                else:
+                    parts.append(f"**{key}:** {value}")
+            if o.flags:
+                parts.append(f"\n**Flags:** {', '.join(o.flags)}")
+            parts.append("")
+
+    # Quality gate
+    q = analysis.quality
+    if q:
+        tier_icon = {"good": "✅", "degraded": "⚠️", "poor": "❌"}.get(q.tier, "")
+        parts.append("### Quality")
+        parts.append(f"{tier_icon} **{q.tier}** (score: {q.score:.2f})")
+        for w in q.warnings:
+            parts.append(f"- ⚠️ {w}")
+        parts.append("")
+
+    return "\n".join(parts)
+
+
 def format_customer_report(analysis: FinalAnalysis) -> str:
     lines = []
 

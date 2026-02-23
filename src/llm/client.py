@@ -38,7 +38,7 @@ DEFAULT_MODEL = "claude-sonnet-4-6"
 
 
 class ClaudeClient:
-    def __init__(self, model: str = DEFAULT_MODEL, max_tokens: int = 4096, api_key: Optional[str] = None):
+    def __init__(self, model: str = DEFAULT_MODEL, max_tokens: int = 8192, api_key: Optional[str] = None):
         self.model = model
         self.max_tokens = max_tokens
         self._api_key = api_key or None
@@ -91,6 +91,10 @@ class ClaudeClient:
             )
             self._track("analyze", response)
             text = response.choices[0].message.content
+            stop_reason = getattr(response.choices[0], "finish_reason", "unknown")
+            if not text:
+                raise ValueError(f"Empty response from model (finish_reason={stop_reason!r})")
+            logger.debug("Response text (first 200 chars): %r  finish_reason=%r", text[:200], stop_reason)
             return self._extract_json(text)
         except Exception as e:
             logger.error("API error: %s", e)
@@ -251,6 +255,12 @@ class ClaudeClient:
         # Try to extract JSON from markdown code fences
         match = re.search(r"```(?:json)?\s*\n?(.*?)\n?\s*```", text, re.DOTALL)
         if match:
-            return json.loads(match.group(1))
+            extracted = match.group(1).strip()
+            if not extracted:
+                raise ValueError(f"Empty JSON block in code fence. Full response ({len(text)} chars): {text[:500]!r}")
+            return json.loads(extracted)
         # Try parsing the whole text as JSON
-        return json.loads(text)
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"JSON parse failed ({e}). Response ({len(text)} chars, finish_reason unknown): {text[:500]!r}") from e
