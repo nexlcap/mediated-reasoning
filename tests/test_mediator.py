@@ -204,9 +204,13 @@ class TestMediatorWeights:
 
 
 
-SAMPLE_SELECTION_RESPONSE = {
-    "selected_modules": ["market", "tech", "cost"],
-    "reasoning": "These three modules cover the core dimensions.",
+SAMPLE_GENERATION_RESPONSE = {
+    "modules": [
+        {"name": "market_dynamics", "system_prompt": "You are a market dynamics expert. Respond with ONLY valid JSON, no other text."},
+        {"name": "technical_feasibility", "system_prompt": "You are a technical feasibility expert. Respond with ONLY valid JSON, no other text."},
+        {"name": "unit_economics", "system_prompt": "You are a unit economics expert. Respond with ONLY valid JSON, no other text."},
+    ],
+    "reasoning": "These three cover demand, technical, and financial dimensions.",
 }
 
 SAMPLE_GAP_CHECK_NO_GAPS = {
@@ -232,9 +236,13 @@ SAMPLE_GAP_CHECK_5_ADHOC = {
     ],
 }
 
-SAMPLE_SELECTION_INVALID_NAMES = {
-    "selected_modules": ["market", "nonexistent_module", "tech"],
-    "reasoning": "Selected modules.",
+SAMPLE_GENERATION_MALFORMED = {
+    "modules": [
+        {"name": "market_dynamics", "system_prompt": "You are a market dynamics expert. Respond with ONLY valid JSON, no other text."},
+        {"name": "", "system_prompt": "Missing name — should be skipped"},
+        {"system_prompt": "No name key at all — should be skipped"},
+    ],
+    "reasoning": "Mixed valid/malformed.",
 }
 
 
@@ -244,7 +252,7 @@ class TestMediatorAutoSelect:
         client = MagicMock(spec=ClaudeClient)
         client.token_usage.return_value = TokenUsage()
         client.analyze.side_effect = [
-            SAMPLE_SELECTION_RESPONSE,
+            SAMPLE_GENERATION_RESPONSE,
             SAMPLE_GAP_CHECK_NO_GAPS,
             SAMPLE_SYNTHESIS_RESPONSE,
         ]
@@ -264,26 +272,26 @@ class TestMediatorAutoSelect:
         client = MagicMock(spec=ClaudeClient)
         client.token_usage.return_value = TokenUsage()
         client.analyze.side_effect = [
-            SAMPLE_SELECTION_RESPONSE,
+            SAMPLE_GENERATION_RESPONSE,
             SAMPLE_GAP_CHECK_NO_GAPS,
             SAMPLE_SYNTHESIS_RESPONSE,
         ]
         client.run_ptc_round.side_effect = _fake_ptc_round
 
-        mediator = Mediator(client, weights={"cost": 0}, auto_select=True)
+        mediator = Mediator(client, weights={"unit_economics": 0}, auto_select=True)
         result = mediator.analyze(sample_problem)
 
         assert client.analyze.call_count == 3
         assert client.run_ptc_round.call_count == 2
         module_names = {o.module_name for o in result.module_outputs}
-        assert "cost" not in module_names
+        assert "unit_economics" not in module_names
 
     def test_auto_select_no_gaps(self, sample_problem):
         """Gap check returns empty, no ad-hoc modules created."""
         client = MagicMock(spec=ClaudeClient)
         client.token_usage.return_value = TokenUsage()
         client.analyze.side_effect = [
-            SAMPLE_SELECTION_RESPONSE,
+            SAMPLE_GENERATION_RESPONSE,
             SAMPLE_GAP_CHECK_NO_GAPS,
             SAMPLE_SYNTHESIS_RESPONSE,
         ]
@@ -299,7 +307,7 @@ class TestMediatorAutoSelect:
         client = MagicMock(spec=ClaudeClient)
         client.token_usage.return_value = TokenUsage()
         client.analyze.side_effect = [
-            SAMPLE_SELECTION_RESPONSE,
+            SAMPLE_GENERATION_RESPONSE,
             SAMPLE_GAP_CHECK_5_ADHOC,
             SAMPLE_SYNTHESIS_RESPONSE,
         ]
@@ -310,12 +318,12 @@ class TestMediatorAutoSelect:
 
         assert len(result.selection_metadata.ad_hoc_modules) == 3
 
-    def test_auto_select_invalid_module_names_filtered(self, sample_problem):
-        """Unknown module names from selection are dropped."""
+    def test_auto_select_malformed_entries_filtered(self, sample_problem):
+        """Malformed module entries (missing name/prompt) are dropped."""
         client = MagicMock(spec=ClaudeClient)
         client.token_usage.return_value = TokenUsage()
         client.analyze.side_effect = [
-            SAMPLE_SELECTION_INVALID_NAMES,
+            SAMPLE_GENERATION_MALFORMED,
             SAMPLE_GAP_CHECK_NO_GAPS,
             SAMPLE_SYNTHESIS_RESPONSE,
         ]
@@ -325,9 +333,9 @@ class TestMediatorAutoSelect:
         result = mediator.analyze(sample_problem)
 
         module_names = {o.module_name for o in result.module_outputs}
-        assert "nonexistent_module" not in module_names
-        assert "market" in module_names
-        assert "tech" in module_names
+        assert "market_dynamics" in module_names
+        # Empty-name and no-name entries should not appear
+        assert "" not in module_names
 
     def test_default_mode_unaffected(self, sample_problem):
         """Without --auto-select, analyze only called for synthesis."""
@@ -345,7 +353,7 @@ class TestMediatorAutoSelect:
         client = MagicMock(spec=ClaudeClient)
         client.token_usage.return_value = TokenUsage()
         client.analyze.side_effect = [
-            SAMPLE_SELECTION_RESPONSE,
+            SAMPLE_GENERATION_RESPONSE,
             SAMPLE_GAP_CHECK_WITH_ADHOC,
             SAMPLE_SYNTHESIS_RESPONSE,
         ]
@@ -357,8 +365,8 @@ class TestMediatorAutoSelect:
         meta = result.selection_metadata
         assert meta is not None
         assert meta.auto_selected is True
-        assert "market" in meta.selected_modules
-        assert meta.selection_reasoning == "These three modules cover the core dimensions."
+        assert "market_dynamics" in meta.selected_modules
+        assert meta.selection_reasoning == "These three cover demand, technical, and financial dimensions."
         assert meta.gap_check_reasoning == "Missing cultural perspective."
         assert len(meta.ad_hoc_modules) == 1
         assert meta.ad_hoc_modules[0].name == "cultural"
@@ -377,3 +385,46 @@ class TestMediatorAutoSelect:
         assert client.analyze.call_count == 2
         assert len(result.module_outputs) == 6
         assert result.selection_metadata is None
+
+
+class TestMediatorUserContext:
+    def test_no_context_passes_problem_unchanged(self, sample_problem):
+        client = _make_ptc_client()
+        mediator = Mediator(client)
+        assert mediator._augmented_problem(sample_problem) == sample_problem
+
+    def test_context_prepended_to_problem(self, sample_problem):
+        client = _make_ptc_client()
+        mediator = Mediator(client, user_context="Bootstrapped SaaS, 2 founders, $8k MRR")
+        aug = mediator._augmented_problem(sample_problem)
+        assert "User context and constraints:" in aug
+        assert "Bootstrapped SaaS" in aug
+        assert sample_problem in aug
+        assert aug.index("User context") < aug.index(sample_problem)
+
+    def test_context_stored_in_result(self, sample_problem):
+        client = _make_ptc_client()
+        mediator = Mediator(client, user_context="Solo founder, pre-revenue")
+        result = mediator.analyze(sample_problem)
+        assert result.user_context == "Solo founder, pre-revenue"
+
+    def test_no_context_empty_string_in_result(self, sample_problem):
+        client = _make_ptc_client()
+        mediator = Mediator(client)
+        result = mediator.analyze(sample_problem)
+        assert result.user_context == ""
+
+    def test_context_passed_to_ptc_round(self, sample_problem):
+        client = _make_ptc_client()
+        mediator = Mediator(client, user_context="VC-backed, Series A")
+        mediator.analyze(sample_problem)
+        call_args = client.run_ptc_round.call_args_list[0]
+        passed_problem = call_args[0][0]
+        assert "VC-backed" in passed_problem
+        assert sample_problem in passed_problem
+
+    def test_whitespace_only_context_ignored(self, sample_problem):
+        client = _make_ptc_client()
+        mediator = Mediator(client, user_context="   ")
+        assert mediator.user_context == ""
+        assert mediator._augmented_problem(sample_problem) == sample_problem

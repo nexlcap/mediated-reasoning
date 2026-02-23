@@ -396,6 +396,36 @@ def build_resolution_prompt(
     return system, user
 
 
+def build_dynamic_module_generation_prompt(problem: str) -> tuple[str, str]:
+    system = (
+        "You are an expert problem decomposer. Given any problem or decision, you design "
+        "a custom panel of specialist analysts whose combined perspectives illuminate every "
+        "material dimension of that problem. You do NOT draw from a fixed list — you invent "
+        "the exact specialist roles that best fit this specific situation. "
+        "Respond with ONLY valid JSON, no other text."
+    )
+    user = (
+        f"Problem to analyze:\n{problem}\n\n"
+        "Design a panel of 3-7 specialist analysts for this problem. Each specialist "
+        "must be unique and non-overlapping.\n\n"
+        "Name each specialist using a short snake_case identifier (e.g. 'enterprise_sales_motion', "
+        "'b2b_pricing_strategy'). The identifier becomes the module's label in the final report.\n\n"
+        "For each specialist, write a system prompt that:\n"
+        "- Opens with \"You are a [role] expert.\"\n"
+        "- States the specific lens they apply (2-3 sentences)\n"
+        "- Ends exactly with: \"Respond with ONLY valid JSON, no other text.\"\n\n"
+        "Return your response as a JSON object with exactly these fields:\n"
+        "{\n"
+        '  "modules": [\n'
+        '    {"name": "specialist_name", "system_prompt": "You are a ... expert. ... Respond with ONLY valid JSON, no other text."},\n'
+        "    ...\n"
+        "  ],\n"
+        '  "reasoning": "One sentence explaining the panel composition logic."\n'
+        "}"
+    )
+    return system, user
+
+
 def build_module_selection_prompt(problem: str) -> tuple[str, str]:
     system = (
         "You are an expert at scoping multi-perspective analyses. "
@@ -423,38 +453,32 @@ def build_module_selection_prompt(problem: str) -> tuple[str, str]:
 
 
 def build_gap_check_prompt(
-    problem: str, selected_module_names: list[str]
+    problem: str, selected_modules: list[dict]
 ) -> tuple[str, str]:
     system = (
         "You are an expert at identifying analytical blind spots. "
-        "Given a problem and a set of selected analysis modules, check whether "
-        "any important perspectives are missing. "
+        "Given a problem and a specialist panel already assembled, identify if any "
+        "critical perspectives are missing. "
         "Respond with ONLY valid JSON, no other text."
     )
-
-    selected_list = ", ".join(selected_module_names)
-    all_modules_list = "\n".join(
-        f"- {name}: {MODULE_DESCRIPTIONS[name]}"
-        for name in ALL_MODULE_NAMES
+    panel_lines = "\n".join(
+        f"- {m['name']}: {m['system_prompt'].split('.')[0]}."
+        for m in selected_modules
+        if m.get("name") and m.get("system_prompt")
     )
-
     user = (
         f"Problem to analyze:\n{problem}\n\n"
-        f"Already selected modules: {selected_list}\n\n"
-        f"Full pool of available modules:\n{all_modules_list}\n\n"
-        "Check if any significant analytical gaps remain. If so, you may propose "
-        "up to 3 ad-hoc modules with custom system prompts to fill those gaps. "
-        "Only propose ad-hoc modules if the gap is significant and not covered by "
-        "the selected modules.\n\n"
+        f"Specialist panel already assembled:\n{panel_lines}\n\n"
+        "Are any analytically significant perspectives missing? Only propose additional "
+        "specialists if the gap would change a recommendation or surface an unseen risk.\n\n"
+        "You may propose up to 3 additional specialists in the same format:\n"
+        '{"name": "...", "system_prompt": "You are a ... expert. ... Respond with ONLY valid JSON, no other text."}\n\n'
         "Return your response as a JSON object with exactly these fields:\n"
-        '{\n'
+        "{\n"
         '  "gaps_identified": true/false,\n'
         '  "reasoning": "Explanation of gaps found or why coverage is sufficient",\n'
-        '  "ad_hoc_modules": [\n'
-        '    {"name": "module_name", "system_prompt": "You are a ... expert. Evaluate ..."},\n'
-        '    ...\n'
-        '  ]\n'
-        '}'
+        '  "ad_hoc_modules": [...]\n'
+        "}"
     )
     return system, user
 

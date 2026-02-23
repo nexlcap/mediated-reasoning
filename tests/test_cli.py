@@ -1,37 +1,11 @@
-import argparse
+import os
+import tempfile
 
 import pytest
 from unittest.mock import MagicMock, patch
 
 from src.llm.prompts import ALL_MODULE_NAMES
-from src.main import main, parse_weight, DEFAULT_MODULE_NAMES, VALID_MODULE_NAMES
-
-
-class TestParseWeight:
-    def test_valid_weight(self):
-        assert parse_weight("legal=2") == ("legal", 2.0)
-
-    def test_valid_weight_float(self):
-        assert parse_weight("cost=1.5") == ("cost", 1.5)
-
-    def test_valid_weight_zero(self):
-        assert parse_weight("tech=0") == ("tech", 0.0)
-
-    def test_missing_equals(self):
-        with pytest.raises(argparse.ArgumentTypeError, match="Invalid weight format"):
-            parse_weight("legal")
-
-    def test_unknown_module(self):
-        with pytest.raises(argparse.ArgumentTypeError, match="Unknown module"):
-            parse_weight("unknown=2")
-
-    def test_non_numeric_weight(self):
-        with pytest.raises(argparse.ArgumentTypeError, match="Invalid weight value"):
-            parse_weight("legal=abc")
-
-    def test_negative_weight(self):
-        with pytest.raises(argparse.ArgumentTypeError, match="must be non-negative"):
-            parse_weight("legal=-1")
+from src.main import main, DEFAULT_MODULE_NAMES
 
 
 class TestListModules:
@@ -42,7 +16,7 @@ class TestListModules:
             assert exc_info.value.code == 0
 
         output = capsys.readouterr().out
-        for name in sorted(VALID_MODULE_NAMES):
+        for name in ALL_MODULE_NAMES:
             assert name in output
 
     def test_list_modules_sorted(self, capsys):
@@ -76,20 +50,6 @@ class TestMainEntrypoint:
             main()
 
         mock_mediator_cls.return_value.analyze.assert_called_once_with("test problem")
-
-    @patch("src.main.export_all")
-    @patch("src.main.Mediator")
-    @patch("src.main.ClaudeClient")
-    def test_weight_passed_to_mediator(self, mock_client_cls, mock_mediator_cls, mock_export):
-        mock_result = MagicMock()
-        mock_result.module_outputs = []
-        mock_mediator_cls.return_value.analyze.return_value = mock_result
-
-        with patch("sys.argv", ["prog", "test", "--weight", "legal=2", "--weight", "cost=0"]):
-            main()
-
-        _, kwargs = mock_mediator_cls.call_args
-        assert kwargs["weights"] == {"legal": 2.0, "cost": 0.0}
 
     @patch("src.main.export_all")
     @patch("src.main.Mediator")
@@ -189,21 +149,7 @@ class TestAutoSelectFlag:
     @patch("src.main.export_all")
     @patch("src.main.Mediator")
     @patch("src.main.ClaudeClient")
-    def test_auto_select_passed_to_mediator(self, mock_client_cls, mock_mediator_cls, mock_export):
-        mock_result = MagicMock()
-        mock_result.module_outputs = []
-        mock_mediator_cls.return_value.analyze.return_value = mock_result
-
-        with patch("sys.argv", ["prog", "test", "--auto-select"]):
-            main()
-
-        _, kwargs = mock_mediator_cls.call_args
-        assert kwargs["auto_select"] is True
-
-    @patch("src.main.export_all")
-    @patch("src.main.Mediator")
-    @patch("src.main.ClaudeClient")
-    def test_no_auto_select_by_default(self, mock_client_cls, mock_mediator_cls, mock_export):
+    def test_auto_select_on_by_default(self, mock_client_cls, mock_mediator_cls, mock_export):
         mock_result = MagicMock()
         mock_result.module_outputs = []
         mock_mediator_cls.return_value.analyze.return_value = mock_result
@@ -212,22 +158,89 @@ class TestAutoSelectFlag:
             main()
 
         _, kwargs = mock_mediator_cls.call_args
-        assert kwargs["auto_select"] is False
+        assert kwargs["auto_select"] is True
 
     @patch("src.main.export_all")
     @patch("src.main.Mediator")
     @patch("src.main.ClaudeClient")
-    def test_auto_select_with_weights(self, mock_client_cls, mock_mediator_cls, mock_export):
+    def test_no_auto_select_disables_it(self, mock_client_cls, mock_mediator_cls, mock_export):
         mock_result = MagicMock()
         mock_result.module_outputs = []
         mock_mediator_cls.return_value.analyze.return_value = mock_result
 
-        with patch("sys.argv", ["prog", "test", "--auto-select", "--weight", "legal=2"]):
+        with patch("sys.argv", ["prog", "test", "--no-auto-select"]):
             main()
 
         _, kwargs = mock_mediator_cls.call_args
-        assert kwargs["auto_select"] is True
-        assert kwargs["weights"] == {"legal": 2.0}
+        assert kwargs["auto_select"] is False
+
+
+class TestUserContext:
+    @patch("src.main.export_all")
+    @patch("src.main.Mediator")
+    @patch("src.main.ClaudeClient")
+    def test_context_flag_passed_to_mediator(self, mock_client_cls, mock_mediator_cls, mock_export):
+        mock_result = MagicMock()
+        mock_result.module_outputs = []
+        mock_mediator_cls.return_value.analyze.return_value = mock_result
+
+        with patch("sys.argv", ["prog", "test", "--context", "Bootstrapped SaaS, 2 founders"]):
+            main()
+
+        _, kwargs = mock_mediator_cls.call_args
+        assert kwargs["user_context"] == "Bootstrapped SaaS, 2 founders"
+
+    @patch("src.main.export_all")
+    @patch("src.main.Mediator")
+    @patch("src.main.ClaudeClient")
+    def test_no_context_passes_none(self, mock_client_cls, mock_mediator_cls, mock_export):
+        mock_result = MagicMock()
+        mock_result.module_outputs = []
+        mock_mediator_cls.return_value.analyze.return_value = mock_result
+
+        with patch("sys.argv", ["prog", "test"]):
+            main()
+
+        _, kwargs = mock_mediator_cls.call_args
+        assert kwargs["user_context"] is None
+
+    @patch("src.main.export_all")
+    @patch("src.main.Mediator")
+    @patch("src.main.ClaudeClient")
+    def test_context_file_loaded(self, mock_client_cls, mock_mediator_cls, mock_export):
+        mock_result = MagicMock()
+        mock_result.module_outputs = []
+        mock_mediator_cls.return_value.analyze.return_value = mock_result
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+            f.write("VC-backed, Series A, $2M ARR")
+            tmp_path = f.name
+        try:
+            with patch("sys.argv", ["prog", "test", "--context-file", tmp_path]):
+                main()
+            _, kwargs = mock_mediator_cls.call_args
+            assert kwargs["user_context"] == "VC-backed, Series A, $2M ARR"
+        finally:
+            os.unlink(tmp_path)
+
+    @patch("src.main.export_all")
+    @patch("src.main.Mediator")
+    @patch("src.main.ClaudeClient")
+    def test_context_flag_takes_priority_over_file(self, mock_client_cls, mock_mediator_cls, mock_export):
+        mock_result = MagicMock()
+        mock_result.module_outputs = []
+        mock_mediator_cls.return_value.analyze.return_value = mock_result
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+            f.write("From file")
+            tmp_path = f.name
+        try:
+            with patch("sys.argv", ["prog", "test", "--context", "From flag", "--context-file", tmp_path]):
+                main()
+            _, kwargs = mock_mediator_cls.call_args
+            assert kwargs["user_context"] == "From flag"
+        finally:
+            os.unlink(tmp_path)
 
 
 class TestListModulesExpanded:
@@ -248,17 +261,4 @@ class TestListModulesExpanded:
 
         output = capsys.readouterr().out
         assert "(default)" in output
-        assert "(auto-select pool)" in output
-
-
-class TestValidModuleNamesExpanded:
-    def test_valid_module_names_includes_all_12(self):
-        assert len(VALID_MODULE_NAMES) == 12
-        for name in ALL_MODULE_NAMES:
-            assert name in VALID_MODULE_NAMES
-
-    def test_pool_modules_accepted_in_weight(self):
-        # e.g. --weight political=2 should be valid
-        name, weight = parse_weight("political=2")
-        assert name == "political"
-        assert weight == 2.0
+        assert "(pool)" in output

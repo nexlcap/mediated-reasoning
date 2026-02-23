@@ -13,6 +13,8 @@ def lint() -> List[str]:
     """Return a list of violation strings.  Empty list = all checks passed."""
     from src.llm.prompts import (
         _module_json_instruction,
+        build_dynamic_module_generation_prompt,
+        build_gap_check_prompt,
         build_synthesis_prompt,
         build_resolution_prompt,
         build_followup_prompt,
@@ -97,6 +99,20 @@ def lint() -> List[str]:
         "MUST BE EMPTY" in res_without or "must be empty" in res_without.lower(),
         "build_resolution_prompt (no search) missing 'MUST BE EMPTY' constraint",
     )
+
+    # --- Layer 1e: build_dynamic_module_generation_prompt ---
+    _, gen_user = build_dynamic_module_generation_prompt("Should I pivot to B2B?")
+    check('"modules"' in gen_user, "build_dynamic_module_generation_prompt: missing 'modules' field")
+    check('"reasoning"' in gen_user, "build_dynamic_module_generation_prompt: missing 'reasoning' field")
+    check("snake_case" in gen_user, "build_dynamic_module_generation_prompt: missing snake_case name guidance")
+    check("Respond with ONLY valid JSON" in gen_user, "build_dynamic_module_generation_prompt: missing JSON constraint for generated system prompts")
+    check("3" in gen_user and "7" in gen_user, "build_dynamic_module_generation_prompt: missing 3-7 count guidance")
+
+    sample_modules = [{"name": "enterprise_sales", "system_prompt": "You are an enterprise sales expert. Respond with ONLY valid JSON, no other text."}]
+    _, gap_user = build_gap_check_prompt("B2B pivot", sample_modules)
+    check("enterprise_sales" in gap_user, "build_gap_check_prompt: does not reference generated module names")
+    check("ad_hoc_modules" in gap_user, "build_gap_check_prompt: missing 'ad_hoc_modules' field")
+    check("gaps_identified" in gap_user, "build_gap_check_prompt: missing 'gaps_identified' field")
 
     # --- Layer 1d: build_followup_prompt ---
 

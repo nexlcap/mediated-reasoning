@@ -8,9 +8,9 @@ from src import observability
 from src.llm.client import ClaudeClient
 from src.llm.prompts import (
     MODULE_SYSTEM_PROMPTS,
+    build_dynamic_module_generation_prompt,
     build_followup_prompt,
     build_gap_check_prompt,
-    build_module_selection_prompt,
     build_resolution_prompt,
     build_synthesis_prompt,
 )
@@ -229,6 +229,7 @@ class Mediator:
         repeat_prompt: bool = True,
         tavily_api_key: Optional[str] = None,
         on_progress=None,
+        user_context: Optional[str] = None,
     ):
         self.client = client                              # synthesis + auto-select + gap-check
         self.module_client = module_client or client     # module analysis + search queries
@@ -239,6 +240,7 @@ class Mediator:
         self.repeat_prompt = repeat_prompt
         self.tavily_api_key = tavily_api_key
         self._on_progress = on_progress
+        self.user_context = (user_context or "").strip()
 
         self.selection_metadata: Optional[SelectionMetadata] = None
 
@@ -248,6 +250,15 @@ class Mediator:
     def _progress(self, msg: str) -> None:
         if self._on_progress:
             self._on_progress(msg)
+
+    def _augmented_problem(self, problem: str) -> str:
+        """Prepend user context to the problem statement for all LLM calls."""
+        if not self.user_context:
+            return problem
+        return (
+            f"User context and constraints:\n{self.user_context}\n\n"
+            f"Problem to analyze:\n{problem}"
+        )
 
     def _init_default_modules(self):
         all_modules = [cls(self.module_client) for cls in MODULE_REGISTRY]
@@ -259,69 +270,60 @@ class Mediator:
         ]
 
     def _select_modules(self, problem: str) -> None:
-        """Run the two-step LLM pre-pass: module selection + gap check."""
-        registry_by_name = {cls(None).name: cls for cls in MODULE_REGISTRY}
-
+        """Run the two-step LLM pre-pass: dynamic panel generation + gap check."""
         try:
-            # Step 1: Module selection
-            system, user = build_module_selection_prompt(problem)
-            selection_result = self.client.analyze(system, user, repeat_prompt=self.repeat_prompt)
-            selected_names = selection_result.get("selected_modules", [])
-            selection_reasoning = selection_result.get("reasoning", "")
+            # Step 1: Generate specialist panel from scratch
+            system, user = build_dynamic_module_generation_prompt(problem)
+            gen_result = self.client.analyze(system, user, repeat_prompt=self.repeat_prompt)
+            raw_modules = gen_result.get("modules", [])
+            selection_reasoning = gen_result.get("reasoning", "")
 
-            # Validate against known modules
-            selected_names = [
-                n for n in selected_names if n in MODULE_SYSTEM_PROMPTS
-            ]
-            if not selected_names:
-                logger.warning("Auto-select returned no valid modules, falling back to defaults")
+            # Validate structure (no fixed-pool check)
+            generated = []
+            seen = set()
+            for item in raw_modules:
+                if not isinstance(item, dict):
+                    continue
+                name = item.get("name", "").strip()
+                prompt = item.get("system_prompt", "").strip()
+                if not name or not prompt or name in seen:
+                    continue
+                generated.append({"name": name, "system_prompt": prompt})
+                seen.add(name)
+
+            if not generated:
+                logger.warning("Dynamic generation returned no valid modules, falling back to defaults")
                 self._init_default_modules()
                 return
 
-            # Step 2: Gap check
-            system, user = build_gap_check_prompt(problem, selected_names)
+            # Step 2: Gap check against generated panel
+            system, user = build_gap_check_prompt(problem, generated)
             gap_result = self.client.analyze(system, user, repeat_prompt=self.repeat_prompt)
             gap_reasoning = gap_result.get("reasoning", "")
             raw_ad_hoc = gap_result.get("ad_hoc_modules", [])
 
-            # Cap ad-hoc at 3, skip name collisions
-            existing_names = set(MODULE_SYSTEM_PROMPTS.keys()) | set(selected_names)
             ad_hoc_modules: List[AdHocModule] = []
             for item in raw_ad_hoc[:3]:
                 if not isinstance(item, dict):
                     continue
                 name = item.get("name", "")
                 prompt = item.get("system_prompt", "")
-                if not name or not prompt:
-                    continue
-                if name in existing_names:
+                if not name or not prompt or name in seen:
                     continue
                 ad_hoc_modules.append(AdHocModule(name=name, system_prompt=prompt))
-                existing_names.add(name)
+                seen.add(name)
 
-            # Instantiate selected modules
-            modules = []
-            for name in selected_names:
-                if name in registry_by_name:
-                    modules.append(registry_by_name[name](self.module_client))
-                else:
-                    modules.append(
-                        create_dynamic_module(name, MODULE_SYSTEM_PROMPTS[name], self.module_client)
-                    )
-
-            # Instantiate ad-hoc modules
+            # Instantiate all via create_dynamic_module (no registry lookup for auto-select)
+            modules = [
+                create_dynamic_module(m["name"], m["system_prompt"], self.module_client)
+                for m in generated
+            ]
             for adhoc in ad_hoc_modules:
-                modules.append(
-                    create_dynamic_module(adhoc.name, adhoc.system_prompt, self.module_client)
-                )
+                modules.append(create_dynamic_module(adhoc.name, adhoc.system_prompt, self.module_client))
 
-            # Apply weight=0 deactivation
-            self.deactivated_modules = [
-                m.name for m in modules if self.weights.get(m.name, 1) == 0
-            ]
-            self.modules = [
-                m for m in modules if m.name not in self.deactivated_modules
-            ]
+            # Weight=0 deactivation (unchanged)
+            self.deactivated_modules = [m.name for m in modules if self.weights.get(m.name, 1) == 0]
+            self.modules = [m for m in modules if m.name not in self.deactivated_modules]
 
             self.selection_metadata = SelectionMetadata(
                 auto_selected=True,
@@ -458,10 +460,12 @@ class Mediator:
         )
 
     def analyze(self, problem: str) -> FinalAnalysis:
+        aug = self._augmented_problem(problem)
+
         if self.auto_select:
             self._progress("Selecting relevant modules…")
             with observability.span("auto-select"):
-                self._select_modules(problem)
+                self._select_modules(aug)
             self._progress(f"Modules selected: {', '.join(m.name for m in self.modules)}")
         else:
             pass  # modules already initialized in __init__
@@ -481,7 +485,7 @@ class Mediator:
         with observability.span("round-1"):
             try:
                 round1_outputs = self.client.run_ptc_round(
-                    problem, self.modules, searcher=searcher
+                    aug, self.modules, searcher=searcher
                 )
             except Exception as e:
                 logger.error("Round 1 failed: %s", e)
@@ -502,7 +506,7 @@ class Mediator:
             if eligible_modules:
                 try:
                     round2_outputs = self.client.run_ptc_round(
-                        problem, eligible_modules, round1_outputs=round1_dicts, searcher=searcher
+                        aug, eligible_modules, round1_outputs=round1_dicts, searcher=searcher
                     )
                 except Exception as e:
                     logger.error("Round 2 failed: %s", e)
@@ -528,7 +532,7 @@ class Mediator:
                 )
                 all_output_dicts = [o.model_dump() for o in pre_remapped_outputs]
                 system, user = build_synthesis_prompt(
-                    problem, all_output_dicts,
+                    aug, all_output_dicts,
                     weights=self.weights,
                     deactivated_modules=self.deactivated_modules,
                     global_sources=pre_global_sources,
@@ -558,7 +562,7 @@ class Mediator:
             self._progress("Deep research — resolving conflicts with targeted search…")
             with observability.span("deep-research"):
                 conflict_resolutions = self._run_deep_research(
-                    problem, conflicts, priority_flags, remapped_outputs, searcher
+                    aug, conflicts, priority_flags, remapped_outputs, searcher
                 )
             if conflict_resolutions:
                 global_sources, conflict_resolutions = _consolidate_resolution_sources(
@@ -569,6 +573,7 @@ class Mediator:
 
         result = FinalAnalysis(
             problem=problem,
+            user_context=self.user_context,
             generated_at=datetime.now(timezone.utc).isoformat(),
             module_outputs=remapped_outputs,
             conflicts=conflicts,
@@ -608,5 +613,6 @@ class Mediator:
         return result
 
     def followup(self, analysis: FinalAnalysis, question: str) -> str:
-        system, user = build_followup_prompt(analysis.problem, analysis, question)
+        aug = self._augmented_problem(analysis.problem)
+        system, user = build_followup_prompt(aug, analysis, question)
         return self.client.chat(system, user)

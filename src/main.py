@@ -6,13 +6,12 @@ import sys
 from dotenv import load_dotenv
 
 from src.llm.client import ClaudeClient, DEFAULT_MODEL
-from src.llm.prompts import ALL_MODULE_NAMES, MODULE_SYSTEM_PROMPTS
+from src.llm.prompts import ALL_MODULE_NAMES
 from src.mediator import Mediator
 from src.modules import MODULE_REGISTRY
 from src.utils.exporters import export_all
 from src.utils.formatters import format_customer_report, format_detailed_report, format_final_analysis, format_round_summary
 
-VALID_MODULE_NAMES = set(MODULE_SYSTEM_PROMPTS.keys())
 DEFAULT_MODULE_NAMES = {cls(None).name for cls in MODULE_REGISTRY}
 
 
@@ -24,30 +23,6 @@ def _git_short_hash() -> str:
         ).strip()
     except Exception:
         return "unknown"
-
-
-def parse_weight(value: str) -> tuple[str, float]:
-    """Parse a 'module=weight' string, validating module name and weight."""
-    if "=" not in value:
-        raise argparse.ArgumentTypeError(
-            f"Invalid weight format: '{value}'. Expected format: module=weight (e.g. legal=2)"
-        )
-    name, weight_str = value.split("=", 1)
-    if name not in VALID_MODULE_NAMES:
-        raise argparse.ArgumentTypeError(
-            f"Unknown module: '{name}'. Valid modules: {', '.join(sorted(VALID_MODULE_NAMES))}"
-        )
-    try:
-        weight = float(weight_str)
-    except ValueError:
-        raise argparse.ArgumentTypeError(
-            f"Invalid weight value: '{weight_str}'. Must be a number."
-        )
-    if weight < 0:
-        raise argparse.ArgumentTypeError(
-            f"Weight for '{name}' must be non-negative, got {weight}"
-        )
-    return name, weight
 
 
 def main():
@@ -62,26 +37,25 @@ def main():
     parser.add_argument("problem", nargs="?", help="The problem or idea to analyze")
     parser.add_argument("--model", default=DEFAULT_MODEL, help=f"LiteLLM model string for synthesis (default: {DEFAULT_MODEL}). Examples: gpt-4o, ollama/llama3.3, together_ai/meta-llama/Llama-3-70b-chat-hf")
     parser.add_argument("--module-model", default="", help="LiteLLM model string for module analysis calls (default: same as --model). Examples: claude-haiku-4-5-20251001, gpt-4o-mini, ollama/phi4")
+    parser.add_argument("--context", default="", metavar="TEXT", help="User context and constraints (e.g. 'Bootstrapped SaaS, 2 co-founders, $8k MRR, B2B'). Injected into every LLM call so recommendations are calibrated to your situation.")
+    parser.add_argument("--context-file", default="", metavar="PATH", help="Path to a file containing user context (alternative to --context for longer profiles)")
     parser.add_argument("--verbose", action="store_true", help="Show detailed round-by-round output")
     parser.add_argument("--report", action="store_true", help="Generate a comprehensive detailed report")
     parser.add_argument("--customer-report", action="store_true", help="Generate a customer-facing report (no internal details)")
     parser.add_argument("--output", action="store_true", help="Export reports to output/ directory (.md, .json, .html)")
-    parser.add_argument(
-        "--weight", action="append", type=parse_weight, default=[], metavar="MODULE=N",
-        help="Set module weight (e.g. --weight legal=2). Weight 0 deactivates a module."
-    )
     parser.add_argument("--interactive", action="store_true", help="Enter interactive follow-up mode after analysis")
-    parser.add_argument("--list-modules", action="store_true", help="List available modules and exit")
-    parser.add_argument("--auto-select", action="store_true", help="Use adaptive module selection (LLM pre-pass to pick relevant modules)")
+    parser.add_argument("--list-modules", action="store_true", help="List fixed fallback modules and exit")
     parser.add_argument("--no-search", action="store_true", help="Skip web search pre-pass (disables grounded source fetching via Tavily)")
     parser.add_argument("--deep-research", action="store_true", help="After synthesis, run targeted web search on high/critical conflicts and red flags to produce evidence-based verdicts and updated recommendations")
     parser.add_argument("--run-label", default="", help="Tag for metrics comparison (e.g. 'pre-ptc', 'ptc'). Defaults to git short hash.")
-    parser.add_argument("--no-repeat-prompt", action="store_true", help="Disable prompt repetition for synthesis and auto-select (on by default; arxiv 2512.14982)")
+    # Hidden escape hatches (always-on by default)
+    parser.add_argument("--no-auto-select", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--no-repeat-prompt", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
 
     if args.list_modules:
         for name in ALL_MODULE_NAMES:
-            marker = "(default)" if name in DEFAULT_MODULE_NAMES else "(auto-select pool)"
+            marker = "(default)" if name in DEFAULT_MODULE_NAMES else "(pool)"
             print(f"{name}  {marker}")
         sys.exit(0)
 
@@ -96,20 +70,27 @@ def main():
     if args.verbose:
         os.environ["MEDIATED_REASONING_DEBUG"] = "1"
 
-    weights = dict(args.weight) if args.weight else {}
+    auto_select = not args.no_auto_select
+
+    user_context = args.context.strip()
+    if not user_context and args.context_file:
+        try:
+            with open(args.context_file) as f:
+                user_context = f.read().strip()
+        except OSError as e:
+            print(f"Warning: could not read context file: {e}", file=sys.stderr)
 
     client = ClaudeClient(model=args.model)
     module_client = ClaudeClient(model=args.module_model, max_tokens=2048) if args.module_model else None
-    mediator = Mediator(client, weights=weights, auto_select=args.auto_select, search=not args.no_search, deep_research=args.deep_research, module_client=module_client, repeat_prompt=not args.no_repeat_prompt)
+    mediator = Mediator(client, auto_select=auto_select, search=not args.no_search, deep_research=args.deep_research, module_client=module_client, repeat_prompt=not args.no_repeat_prompt, user_context=user_context or None)
 
     print(f"\nAnalyzing: {problem}\n")
-    if args.auto_select:
-        print("Running adaptive module selection + 3-round mediated reasoning...")
-    else:
-        print("Running 3-round mediated reasoning (7 API calls)...")
+    if user_context:
+        print(f"Context: {user_context[:120]}{'…' if len(user_context) > 120 else ''}\n")
+    print("Running adaptive module selection + 3-round mediated reasoning...")
     print("This may take a few minutes.\n")
 
-    module_names = [m.name for m in mediator.modules] if not args.auto_select else []
+    module_names = [] if auto_select else [m.name for m in mediator.modules]
     with observability.trace(
         "mediated-reasoning",
         input=problem,

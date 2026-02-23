@@ -40,3 +40,8 @@ CLI tool using multi-agent mediated reasoning to analyze complex problems from m
 | 24 | Lightweight run quality gate — score + tier + warnings from structural metrics, no LLM calls | Done |
 | 25 | LiteLLM backend — unified API for multi-provider + local model support (Ollama, OpenAI, Anthropic, etc.) | Done |
 | 26 | Gradio UI for HuggingFace Spaces — public web interface, separate HF Space repo, pip-installable main package | Done |
+| 27 | User context / constraints profile — inject stage, resources, industry into every run so recommendations are actionable, not generic | Done |
+| 28 | A vs B comparison mode — parallel panels for two options + synthesis that explicitly contrasts them | Open |
+| 29 | Document / data input — feed a PDF, financial model, or research doc as grounding context alongside web search | Open |
+| 30 | Scenario / sensitivity analysis — structured what-if variants (e.g. "stress-test at 50% slower growth") without re-running from scratch | Open |
+| 31 | Recommendation follow-through — capture which recommendations were acted on, track outcomes, feed results back into future runs | Open |

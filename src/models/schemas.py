@@ -128,6 +128,7 @@ class RunQuality(BaseModel):
 
 class FinalAnalysis(BaseModel):
     problem: str
+    user_context: str = ""          # user-supplied context/constraints profile (empty = none provided)
     generated_at: str = ""
     module_outputs: List[ModuleOutput] = Field(default_factory=list)
     conflicts: List[Conflict] = Field(default_factory=list)
