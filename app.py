@@ -77,9 +77,9 @@ def run_analysis(
         deep_research=deep_research,
         module_client=module_client,
         repeat_prompt=repeat_prompt,
-        tavily_api_key=tavily_key.strip() or None,
+        tavily_api_key=(tavily_key or "").strip() or None,
         on_progress=on_progress,
-        user_context=user_context.strip() or None,
+        user_context=(user_context or "").strip() or None,
     )
 
     def run():
