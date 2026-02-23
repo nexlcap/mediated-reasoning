@@ -140,12 +140,13 @@ def run_followup(question, result, mediator):
     return ANSI_RE.sub('', answer)
 
 
-with gr.Blocks(title="Mediated Reasoning") as demo:
+with gr.Blocks(title="Fusen") as demo:
     result_state  = gr.State(None)
     mediator_state = gr.State(None)
 
-    gr.Markdown("# 🧠 Mediated Reasoning\nMulti-perspective analysis via specialist AI modules.")
-    gr.Markdown("_Bring your own API key — it is used only for your request and never stored._")
+    gr.Markdown("# 🔥 Fusen\n**Fuse every angle. Move alone.**")
+    gr.Markdown("AI co-founder for solo entrepreneurs. Fuses market, tech, cost, legal, and scalability perspectives into a single structured recommendation — bring your own API key, never stored.")
+
 
     with gr.Row():
         problem_input = gr.Textbox(
