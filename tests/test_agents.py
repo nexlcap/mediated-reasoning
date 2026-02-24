@@ -7,8 +7,8 @@ from src.agents.risk_agent import RiskAgent
 
 
 class TestAgentRegistry:
-    def test_registry_has_three_agents(self):
-        assert len(AGENT_REGISTRY) == 3
+    def test_registry_has_six_agents(self):
+        assert len(AGENT_REGISTRY) == 6
 
     def test_registry_contains_all_agents(self):
         classes = set(AGENT_REGISTRY)

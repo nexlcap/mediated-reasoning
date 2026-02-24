@@ -50,12 +50,12 @@ class TestMediator:
         mediator = Mediator(mediator_client)
         result = mediator.analyze(sample_problem)
 
-        # 3 round1 + 3 round2 = 6 agent outputs
-        assert len(result.agent_outputs) == 6
+        # 6 round1 + 6 round2 = 12 agent outputs
+        assert len(result.agent_outputs) == 12
         round1 = [o for o in result.agent_outputs if o.round == 1]
         round2 = [o for o in result.agent_outputs if o.round == 2]
-        assert len(round1) == 3
-        assert len(round2) == 3
+        assert len(round1) == 6
+        assert len(round2) == 6
 
     def test_synthesis_fields_populated(self, mediator_client, sample_problem):
         mediator = Mediator(mediator_client)
@@ -97,8 +97,8 @@ class TestMediator:
         result = mediator.analyze(sample_problem)
 
         assert isinstance(result, FinalAnalysis)
-        # 2 round1 + 2 round2 = 4 agent outputs
-        assert len(result.agent_outputs) == 4
+        # 5 round1 (1 skipped) + 5 round2 (only R1 survivors) = 10 agent outputs
+        assert len(result.agent_outputs) == 10
 
     def test_total_failure_returns_empty_analysis(self, sample_problem):
         client = MagicMock(spec=ClaudeClient)
@@ -123,7 +123,7 @@ class TestMediator:
         result = mediator.analyze(sample_problem)
 
         assert isinstance(result, FinalAnalysis)
-        assert len(result.agent_outputs) == 6
+        assert len(result.agent_outputs) == 12
         assert result.synthesis == ""
         assert result.conflicts == []
 
@@ -155,19 +155,19 @@ class TestMediatorWeights:
         assert client.analyze.call_count == 1
         agent_names = {o.agent_name for o in result.agent_outputs}
         assert "cost" not in agent_names
-        assert len(agent_names) == 2
+        assert len(agent_names) == 5
 
     def test_deactivated_agents_tracked(self):
         client = _make_ptc_client()
         mediator = Mediator(client, weights={"cost": 0, "risk": 0})
         assert set(mediator.deactivated_agents) == {"cost", "risk"}
-        assert len(mediator.agents) == 1
+        assert len(mediator.agents) == 4
 
     def test_weight_nonzero_keeps_agent(self):
         client = _make_ptc_client()
         mediator = Mediator(client, weights={"risk": 2})
         assert mediator.deactivated_agents == []
-        assert len(mediator.agents) == 3
+        assert len(mediator.agents) == 6
 
     def test_disclaimer_passed_through(self, sample_problem):
         client = _make_ptc_client(synthesis_response=SAMPLE_SYNTHESIS_WITH_DISCLAIMER)
@@ -200,7 +200,7 @@ class TestMediatorWeights:
         mediator = Mediator(client)
         assert mediator.weights == {}
         assert mediator.deactivated_agents == []
-        assert len(mediator.agents) == 3
+        assert len(mediator.agents) == 6
 
 
 
@@ -383,7 +383,7 @@ class TestMediatorAutoSelect:
 
         # 1 failed selection + 1 synthesis = 2 analyze calls
         assert client.analyze.call_count == 2
-        assert len(result.agent_outputs) == 6
+        assert len(result.agent_outputs) == 12
         assert result.selection_metadata is None
 
 

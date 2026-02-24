@@ -5,7 +5,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from src.llm.prompts import ALL_AGENT_NAMES
-from src.main import main, DEFAULT_AGENT_NAMES
+from src.main import main
 
 
 class TestListAgents:
@@ -326,11 +326,11 @@ class TestListAgentsExpanded:
         for name in ALL_AGENT_NAMES:
             assert name in output
 
-    def test_list_agents_shows_markers(self, capsys):
+    def test_list_agents_no_markers(self, capsys):
         with patch("sys.argv", ["prog", "--list-agents"]):
             with pytest.raises(SystemExit):
                 main()
 
         output = capsys.readouterr().out
-        assert "(default)" in output
-        assert "(pool)" in output
+        assert "(default)" not in output
+        assert "(pool)" not in output

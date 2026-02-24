@@ -9,12 +9,9 @@ from dotenv import load_dotenv
 from src.llm.client import ClaudeClient, DEFAULT_MODEL
 from src.llm.prompts import ALL_AGENT_NAMES
 from src.mediator import Mediator
-from src.agents import AGENT_REGISTRY
 from src.project_memory import ProjectMemory, QAPair
 from src.utils.exporters import export_all
 from src.utils.formatters import format_customer_report, format_detailed_report, format_final_analysis, format_round_summary
-
-DEFAULT_AGENT_NAMES = {cls(None).name for cls in AGENT_REGISTRY}
 
 
 def _git_short_hash() -> str:
@@ -58,8 +55,7 @@ def main():
 
     if args.list_agents:
         for name in ALL_AGENT_NAMES:
-            marker = "(default)" if name in DEFAULT_AGENT_NAMES else "(pool)"
-            print(f"{name}  {marker}")
+            print(name)
         sys.exit(0)
 
     problem = args.problem

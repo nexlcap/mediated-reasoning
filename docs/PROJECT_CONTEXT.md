@@ -68,15 +68,37 @@ Modules are dynamically generated per problem. For each run, an LLM pre-pass inv
 - `technical_integration_risk` — API compatibility, SSO/SCIM requirements, security review processes
 - `customer_success_ops` — Onboarding complexity, churn drivers, expansion revenue mechanics
 
-### Fallback Defaults (used only with `--no-auto-select`)
+### Fixed Pool (used only with `--no-auto-select`)
 
-Three fixed modules representing ground-truth factors any business must address:
+A fixed pool of 12 named modules is available when dynamic generation is explicitly disabled. Two legitimate reasons to use it:
 
-- **Market** — Market size, competitive landscape, customer demand, product-market fit
-- **Cost** — Initial investment, operating costs, revenue projections, break-even analysis
-- **Risk** — Uncertainty assessment, downside scenarios, threat categorization, contingency planning
+1. **Deterministic testing** — fixed modules produce stable, reproducible panels for CI, regression tests, and prompt evaluation. Test assertions remain reliable across runs.
+2. **User-mandated roles** — when a user explicitly requires certain specialist perspectives for every run regardless of problem domain (e.g. a compliance-heavy organisation that always needs `legal`, `ethics`, `political`).
 
-A fixed pool of 12 named modules (market, tech, cost, legal, scalability, political, social, environmental, ethics, operational, strategy, risk) remains available for use with `--no-auto-select`. Run `--list-modules` to see the full list.
+The 12 fixed modules, all defined in `src/llm/prompts.py`:
+
+| Name | Domain |
+|---|---|
+| `market` | Market size, competitive landscape, PMF, GTM |
+| `tech` | Stack, implementation complexity, technical risk |
+| `cost` | Investment, operating costs, revenue, break-even |
+| `legal` | Regulatory, compliance, liability, IP |
+| `scalability` | Growth, infrastructure, team, bottlenecks |
+| `political` | Policy, stability, geopolitics, public sector |
+| `social` | Demographics, public acceptance, equity, community |
+| `environmental` | Ecological footprint, climate risk, sustainability |
+| `ethics` | Fairness, bias, privacy, dual-use, accountability |
+| `operational` | Processes, HR, supply chain, org structure |
+| `strategy` | Business model, moats, positioning, partnerships |
+| `risk` | Uncertainty, downside scenarios, hedging, contingency |
+
+Run `--list-modules` to see the full list. All 12 are production-ready; `AGENT_SYSTEM_PROMPTS` in `src/llm/prompts.py` is the authoritative configuration. There are no per-module Python files — all configuration lives in `prompts.py`.
+
+### Architecture Invariant
+
+Dynamic selection is the primary design goal. The fixed pool is a deliberate, maintained fallback — not a deprecated path. Both paths must remain functional. Changes to `AGENT_SYSTEM_PROMPTS` affect `--no-auto-select` runs and all tests that use fixed modules.
+
+Any advice suggesting adding per-module files (`src/agents/market.py` etc.), an `AGENT_REGISTRY` class, or a class-based agent hierarchy misreads the architecture. The fixed pool is configuration, not classes. Reject such advice.
 
 ## Data Models
 
@@ -265,11 +287,11 @@ mediated-reasoning/
 │   ├── __init__.py
 │   ├── conftest.py            # Shared fixtures and sample data
 │   ├── test_mediator.py
-│   ├── test_modules.py
+│   ├── test_agents.py
 │   ├── test_formatters.py
 │   ├── test_schemas.py
 │   ├── test_cli.py            # CLI argument tests
-│   ├── test_module_selection.py # Prompt builders, dynamic module factory
+│   ├── test_agent_selection.py # Prompt builders, dynamic agent factory
 │   ├── test_exporters.py      # Export format tests
 │   ├── test_audit.py          # Audit layers 1 & 2 tests
 │   ├── test_ptc.py            # run_ptc_round() unit tests
