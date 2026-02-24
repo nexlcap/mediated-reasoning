@@ -1,3 +1,15 @@
+---
+title: Fusen
+emoji: 🔥
+colorFrom: red
+colorTo: yellow
+sdk: gradio
+sdk_version: "6.6.0"
+python_version: "3.11"
+app_file: app.py
+pinned: false
+---
+
 # 🔥 Fusen
 
 **Fuse every angle. Move alone.**
@@ -16,7 +28,7 @@ Three rounds of structured reasoning:
 2. **Round 2 — Informed Revision:** Specialists see each other's outputs and revise their positions with full cross-domain context.
 3. **Round 3 — Synthesis:** Conflicts are identified and arbitrated, critical issues are flagged (red/yellow/green), and a final recommendation is generated.
 
-Agents run in parallel within each round via programmatic tool calling (PTC). LiteLLM is used as the LLM backend, supporting any provider out of the box — Anthropic (default), OpenAI, Google Gemini, Groq, or fully local models via Ollama (no API key required). A web search pre-pass grounds each agent's analysis in real, cited sources (DuckDuckGo by default — no API key required; Tavily opt-in for higher quality). A structural quality gate scores every run on source survival, agent completion, and critical flag density, and displays the result (`good` / `degraded` / `poor`) at the end of every output.
+Agents run in parallel within each round via programmatic tool calling (PTC). LiteLLM is used as the LLM backend, supporting any provider out of the box — Anthropic (default), OpenAI, Google Gemini, xAI (Grok), Groq, or fully local models via Ollama (no API key required). A web search pre-pass grounds each agent's analysis in real, cited sources (DuckDuckGo by default — no API key required; Tavily opt-in for higher quality). A structural quality gate scores every run on source survival, agent completion, and critical flag density, and displays the result (`good` / `degraded` / `poor`) at the end of every output.
 
 ## Setup
 
@@ -27,7 +39,7 @@ pip install -r requirements.txt
 
 cp .env.example .env
 # Add ANTHROPIC_API_KEY to .env for the default Claude model
-# For other providers, see .env.example — OpenAI, Google, Groq, or Ollama (local, no key)
+# For other providers, see .env.example — OpenAI, Google (GEMINI_API_KEY), xAI (XAI_API_KEY), Groq, or Ollama (local, no key)
 
 # Optional: Tavily for higher-quality search results
 # pip install -r requirements-tavily.txt
@@ -40,16 +52,13 @@ cp .env.example .env
 # Basic analysis
 python -m src.main "Should we build a food delivery app?"
 
-# Adaptive agent selection — LLM picks relevant agents from a pool of 12
-python -m src.main "your problem" --auto-select
-
 # Export all formats (md, json, html) to output/ directory
 python -m src.main "your problem" --output
 
 # Detailed internal report (round-by-round breakdown)
 python -m src.main "your problem" --report
 
-# Skip web search (cite from training knowledge only)
+# Skip web search pre-pass (use model training knowledge only)
 python -m src.main "your problem" --no-search
 
 # Deep research round: targeted evidence gathering for conflicts and red flags
@@ -58,14 +67,13 @@ python -m src.main "your problem" --deep-research
 # Interactive follow-up questions after analysis
 python -m src.main "your problem" --interactive
 
-# Adjust agent weights (0 deactivates an agent)
-python -m src.main "your problem" --weight legal=2 --weight cost=0
-
 # Use a separate model for agent calls (cheaper/faster)
 python -m src.main "your problem" --agent-model claude-haiku-4-5-20251001
 
-# Use any LiteLLM-supported provider (OpenAI, Gemini, Groq, local Ollama, etc.)
+# Use any LiteLLM-supported provider (OpenAI, Gemini, xAI, Groq, local Ollama, etc.)
 python -m src.main "your problem" --model gpt-4o --agent-model gpt-4o-mini
+python -m src.main "your problem" --model gemini/gemini-2.5-pro --agent-model gemini/gemini-2.5-flash  # Google Gemini
+python -m src.main "your problem" --model xai/grok-3 --agent-model xai/grok-2                         # xAI Grok
 python -m src.main "your problem" --model ollama/llama3.3  # fully local, no API key
 
 # Tag run for metrics comparison
@@ -73,6 +81,19 @@ python -m src.main "your problem" --output --run-label baseline
 
 # List available agents
 python -m src.main --list-agents
+
+# Inject user context so recommendations are calibrated to your situation
+python -m src.main "your problem" --context "Bootstrapped SaaS, 2 co-founders, $8k MRR, B2B"
+python -m src.main "your problem" --context-file context.txt
+
+# Persist project memory across sessions (brief.md + session logs)
+python -m src.main "your problem" --project ./my-project
+
+# Generate a client-facing report (no internal reasoning details)
+python -m src.main "your problem" --customer-report
+
+# Show detailed round-by-round output in the terminal
+python -m src.main "your problem" --verbose
 ```
 
 ### Output Directory Structure

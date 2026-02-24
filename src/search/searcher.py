@@ -247,7 +247,7 @@ class SearchPrePass:
                     url=r.get("href", ""),
                     content=r.get("body", ""),
                 )
-                for r in self._ddgs().text(query, max_results=3)
+                for r in self._ddgs(timeout=10).text(query, max_results=3)
                 if r.get("href")
             ]
         return []

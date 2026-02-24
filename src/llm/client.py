@@ -30,8 +30,9 @@ logger = get_logger(__name__)
 
 # Default model — any LiteLLM-supported model string works here.
 # Examples:
-#   Anthropic : claude-sonnet-4-20250514
+#   Anthropic : claude-sonnet-4-6, claude-opus-4-6
 #   OpenAI    : gpt-4o, gpt-4o-mini
+#   Google    : gemini/gemini-2.5-flash, gemini/gemini-2.5-pro
 #   Ollama    : ollama/llama3.3, ollama/phi4, ollama/qwen2.5:72b
 #   Together  : together_ai/meta-llama/Llama-3-70b-chat-hf
 DEFAULT_MODEL = "claude-sonnet-4-6"
@@ -75,18 +76,19 @@ class ClaudeClient:
         ]
         return {k: self._usage[k] for k in keys}
 
-    def analyze(self, system_prompt: str, user_prompt: str, repeat_prompt: bool = False) -> Dict:
+    def analyze(self, system_prompt: str, user_prompt: str, repeat_prompt: bool = False, timeout: int = 120, max_tokens: Optional[int] = None) -> Dict:
         if repeat_prompt:
             user_prompt = user_prompt + "\n\n" + user_prompt
         logger.debug("Sending request to %s", self.model)
         try:
             response = litellm.completion(
                 model=self.model,
-                max_tokens=self.max_tokens,
+                max_tokens=max_tokens or self.max_tokens,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
+                timeout=timeout,
                 **({"api_key": self._api_key} if self._api_key else {}),
             )
             self._track("analyze", response)
@@ -111,6 +113,7 @@ class ClaudeClient:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
+                timeout=120,
                 **({"api_key": self._api_key} if self._api_key else {}),
             )
             self._track("chat", response)
@@ -184,6 +187,7 @@ class ClaudeClient:
                 max_tokens=512,
                 messages=messages,
                 tools=tools,
+                timeout=60,
                 **({"api_key": self._api_key} if self._api_key else {}),
             )
             self._track("ptc_orchestrator", response)
@@ -230,7 +234,7 @@ class ClaudeClient:
 
                 for f, (tc_id, name) in futures.items():
                     try:
-                        output = f.result()
+                        output = f.result(timeout=180)
                         captured[name] = output
                         tool_result_messages.append({
                             "role": "tool",
@@ -252,15 +256,29 @@ class ClaudeClient:
 
     @staticmethod
     def _extract_json(text: str) -> Dict:
-        # Try to extract JSON from markdown code fences
+        # 1. Closed code fence (normal case)
         match = re.search(r"```(?:json)?\s*\n?(.*?)\n?\s*```", text, re.DOTALL)
         if match:
             extracted = match.group(1).strip()
             if not extracted:
                 raise ValueError(f"Empty JSON block in code fence. Full response ({len(text)} chars): {text[:500]!r}")
             return json.loads(extracted)
-        # Try parsing the whole text as JSON
+        # 2. Plain JSON (no code fence)
         try:
             return json.loads(text)
-        except json.JSONDecodeError as e:
-            raise ValueError(f"JSON parse failed ({e}). Response ({len(text)} chars, finish_reason unknown): {text[:500]!r}") from e
+        except json.JSONDecodeError:
+            pass
+        # 3. Truncated code fence — opening ``` present but response was cut off before closing ```
+        match = re.search(r"```(?:json)?\s*\n?(.*)", text, re.DOTALL)
+        if match:
+            extracted = match.group(1).strip()
+            if extracted:
+                try:
+                    return json.loads(extracted)
+                except json.JSONDecodeError as e:
+                    raise ValueError(
+                        f"Truncated JSON in code fence ({e}). "
+                        f"Response ({len(text)} chars) was cut off mid-JSON — increase max_tokens for synthesis. "
+                        f"Preview: {text[:300]!r}"
+                    ) from e
+        raise ValueError(f"No JSON found in response ({len(text)} chars): {text[:500]!r}")
