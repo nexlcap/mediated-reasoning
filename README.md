@@ -2,7 +2,7 @@
 title: Fusen
 emoji: 🔥
 colorFrom: red
-colorTo: orange
+colorTo: yellow
 sdk: gradio
 sdk_version: "6.6.0"
 python_version: "3.11"
