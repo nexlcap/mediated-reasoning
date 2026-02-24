@@ -1,3 +1,15 @@
+---
+title: Fusen
+emoji: 🔥
+colorFrom: red
+colorTo: orange
+sdk: gradio
+sdk_version: "6.6.0"
+python_version: "3.11"
+app_file: app.py
+pinned: false
+---
+
 # 🔥 Fusen
 
 **Fuse every angle. Move alone.**
