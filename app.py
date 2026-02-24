@@ -224,8 +224,7 @@ function() {
         "save-session":     "Append this session to the log and ask the AI to rewrite the project brief",
         "model-dd":         "Main LLM used for synthesis and the final report",
         "module-model-dd":  "Separate (typically cheaper) model for specialist rounds — leave as (same) for best quality",
-        "report-radio":     "Standard: Round 2 + synthesis only.  Detailed: all rounds shown in the right sidebar",
-        "auto-cb":          "Let the AI choose the most relevant specialist lenses for your specific problem",
+"auto-cb":          "Let the AI choose the most relevant specialist lenses for your specific problem",
         "search-cb":        "Disable web search — runs faster but recommendations won't cite live sources",
         "deep-cb":          "Run an extra conflict-resolution pass to reconcile disagreements between specialists",
         "repeat-cb":        "Re-send the original question to synthesis — measurably improves quality (arxiv 2512.14982)",
@@ -325,11 +324,11 @@ def _format_qa_right(qa_history: List[QAPair]) -> str:
     return md
 
 
-def _show_detail_in_sidebar(result, style) -> str:
+def _show_detail_in_sidebar(result) -> str:
     if result is None:
         return "*No analysis yet — run an analysis first.*"
     try:
-        return format_detail_md(result, detailed=(style == "Detailed"))
+        return format_detail_md(result, detailed=False)
     except Exception as e:
         return f"*Error loading detail: {e}*"
 
@@ -394,7 +393,7 @@ def save_project_session(
 # ── Analysis ──────────────────────────────────────────────────────────────────
 def run_analysis(
     problem, model, module_model_choice, api_key,
-    report_style, auto_select, no_search, deep_research,
+    auto_select, no_search, deep_research,
     repeat_prompt, tavily_key, user_context,
     project_memory, brief_text,
 ):
@@ -467,7 +466,7 @@ def run_analysis(
         elif kind == "done":
             result    = item[1]
             core_md   = format_core_md(result)
-            detail_md = format_detail_md(result, detailed=(report_style == "Detailed"))
+            detail_md = format_detail_md(result, detailed=False)
             q         = result.quality
             te        = {"good": "✅", "degraded": "⚠️", "poor": "❌"}.get(q.tier if q else "", "")
             stats     = ""
@@ -572,10 +571,6 @@ with gr.Blocks(title="Fusen") as demo:
                 choices=MODULE_MODEL_CHOICES, value="(same as main model)",
                 label="Module model", elem_id="module-model-dd",
             )
-            report_radio = gr.Radio(
-                choices=["Standard", "Detailed"], value="Standard",
-                label="Report style", elem_id="report-radio",
-            )
             auto_cb   = gr.Checkbox(label="Auto-select modules", value=True,  elem_id="auto-cb")
             search_cb = gr.Checkbox(label="Skip web search",     value=False, elem_id="search-cb")
             deep_cb   = gr.Checkbox(label="Deep research",       value=True,  elem_id="deep-cb")
@@ -660,7 +655,7 @@ with gr.Blocks(title="Fusen") as demo:
         fn=run_analysis,
         inputs=[
             problem_input, model_dd, module_model_dd, api_key_input,
-            report_radio, auto_cb, search_cb, deep_cb,
+            auto_cb, search_cb, deep_cb,
             repeat_cb, tavily_input, context_input,
             project_mem_state, brief_area,
         ],
@@ -678,7 +673,7 @@ with gr.Blocks(title="Fusen") as demo:
     followup_input.submit(fn=run_followup, inputs=_fu_in, outputs=_fu_out)
 
     show_detail_btn.click(
-        fn=_show_detail_in_sidebar, inputs=[result_state, report_radio], outputs=[right_detail_md],
+        fn=_show_detail_in_sidebar, inputs=[result_state], outputs=[right_detail_md],
     )
     show_qa_btn.click(
         fn=_show_qa_in_sidebar, inputs=[qa_history_state], outputs=[right_detail_md],
