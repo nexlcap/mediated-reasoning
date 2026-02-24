@@ -76,7 +76,7 @@ class ClaudeClient:
         ]
         return {k: self._usage[k] for k in keys}
 
-    def analyze(self, system_prompt: str, user_prompt: str, repeat_prompt: bool = False) -> Dict:
+    def analyze(self, system_prompt: str, user_prompt: str, repeat_prompt: bool = False, timeout: int = 120) -> Dict:
         if repeat_prompt:
             user_prompt = user_prompt + "\n\n" + user_prompt
         logger.debug("Sending request to %s", self.model)
@@ -88,6 +88,7 @@ class ClaudeClient:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
+                timeout=timeout,
                 **({"api_key": self._api_key} if self._api_key else {}),
             )
             self._track("analyze", response)
@@ -112,6 +113,7 @@ class ClaudeClient:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
+                timeout=120,
                 **({"api_key": self._api_key} if self._api_key else {}),
             )
             self._track("chat", response)
@@ -185,6 +187,7 @@ class ClaudeClient:
                 max_tokens=512,
                 messages=messages,
                 tools=tools,
+                timeout=60,
                 **({"api_key": self._api_key} if self._api_key else {}),
             )
             self._track("ptc_orchestrator", response)
@@ -231,7 +234,7 @@ class ClaudeClient:
 
                 for f, (tc_id, name) in futures.items():
                     try:
-                        output = f.result()
+                        output = f.result(timeout=180)
                         captured[name] = output
                         tool_result_messages.append({
                             "role": "tool",
