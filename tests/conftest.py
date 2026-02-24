@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from src.llm.client import ClaudeClient
-from src.models.schemas import ModuleOutput
+from src.models.schemas import AgentOutput
 
 
 SAMPLE_PROBLEM = "I want to build a food delivery app"
@@ -21,9 +21,9 @@ SAMPLE_LLM_RESPONSE = {
 SAMPLE_SYNTHESIS_RESPONSE = {
     "conflicts": [
         {
-            "modules": ["market", "cost"],
+            "agents": ["market", "cost"],
             "topic": "burn rate",
-            "description": "Market module sees high demand but cost module flags high burn rate",
+            "description": "Market agent sees high demand but cost agent flags high burn rate",
             "severity": "high",
         }
     ],
@@ -34,19 +34,19 @@ SAMPLE_SYNTHESIS_RESPONSE = {
 }
 
 
-def _fake_ptc_round(problem, modules, round1_outputs=None, searcher=None):
-    """Fake run_ptc_round for tests: returns ModuleOutput for each module directly."""
+def _fake_ptc_round(problem, agents, round1_outputs=None, searcher=None):
+    """Fake run_ptc_round for tests: returns AgentOutput for each agent directly."""
     round_num = 2 if round1_outputs is not None else 1
     return [
-        ModuleOutput(
-            module_name=m.name,
+        AgentOutput(
+            agent_name=m.name,
             round=round_num,
             analysis=SAMPLE_LLM_RESPONSE["analysis"],
             flags=SAMPLE_LLM_RESPONSE["flags"],
             sources=SAMPLE_LLM_RESPONSE["sources"],
             revised=(round_num == 2),
         )
-        for m in modules
+        for m in agents
     ]
 
 
@@ -54,7 +54,7 @@ def _fake_ptc_round(problem, modules, round1_outputs=None, searcher=None):
 def disable_search_prepass():
     """Prevent Tavily search from firing in unit tests."""
     with patch("src.search.searcher.SearchPrePass.run", return_value=None), \
-         patch("src.search.searcher.SearchPrePass.run_for_module", return_value=None), \
+         patch("src.search.searcher.SearchPrePass.run_for_agent", return_value=None), \
          patch("src.search.searcher.SearchPrePass.run_for_conflict", return_value=None):
         yield
 
@@ -72,9 +72,9 @@ def sample_problem():
 
 
 @pytest.fixture
-def sample_module_output():
-    return ModuleOutput(
-        module_name="market",
+def sample_agent_output():
+    return AgentOutput(
+        agent_name="market",
         round=1,
         analysis=SAMPLE_LLM_RESPONSE["analysis"],
         flags=SAMPLE_LLM_RESPONSE["flags"],

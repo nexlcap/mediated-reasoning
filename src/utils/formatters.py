@@ -1,4 +1,4 @@
-from src.models.schemas import Conflict, ConflictResolution, FinalAnalysis, ModuleOutput
+from src.models.schemas import Conflict, ConflictResolution, FinalAnalysis, AgentOutput
 
 
 # ANSI color codes
@@ -25,8 +25,8 @@ def _format_conflict(conflict: Conflict) -> str:
     severity_tag = conflict.severity.upper()
     color = SEVERITY_COLORS.get(conflict.severity, "")
     reset = RESET if color else ""
-    modules = " vs ".join(conflict.modules)
-    line = f"  - {color}[{severity_tag}]{reset} {modules} — {conflict.topic}: {conflict.description}"
+    agents = " vs ".join(conflict.agents)
+    line = f"  - {color}[{severity_tag}]{reset} {agents} — {conflict.topic}: {conflict.description}"
     if conflict.arbitration:
         line += (
             f"\n    {BOLD}→ Authority:{RESET} {conflict.arbitration.authority}"
@@ -43,8 +43,8 @@ def _colorize_flag(flag: str) -> str:
     return flag
 
 
-def _format_module_detail(output: ModuleOutput) -> list[str]:
-    lines = [f"{CYAN}{BOLD}[{output.module_name.upper()}]{RESET}"]
+def _format_agent_detail(output: AgentOutput) -> list[str]:
+    lines = [f"{CYAN}{BOLD}[{output.agent_name.upper()}]{RESET}"]
     for key, value in output.analysis.items():
         if isinstance(value, list):
             lines.append(f"  {BOLD}{key}:{RESET}")
@@ -64,24 +64,24 @@ def _format_module_detail(output: ModuleOutput) -> list[str]:
 
 
 def _format_analysis_config(analysis: FinalAnalysis) -> list[str]:
-    """Render the Analysis Configuration block (modules, weights, RACI, search)."""
+    """Render the Analysis Configuration block (agents, weights, RACI, search)."""
     lines = [f"{BOLD}Analysis Configuration:{RESET}"]
 
-    # Active modules with weights
-    active_modules = list(dict.fromkeys(
-        o.module_name for o in analysis.module_outputs
+    # Active agents with weights
+    active_agents = list(dict.fromkeys(
+        o.agent_name for o in analysis.agent_outputs
     ))
-    if active_modules:
-        module_parts = []
-        for name in active_modules:
+    if active_agents:
+        agent_parts = []
+        for name in active_agents:
             w = analysis.weights.get(name, 1)
-            module_parts.append(f"{name} ({w}x)" if w != 1 else name)
-        lines.append(f"  {BOLD}Modules:{RESET} {', '.join(module_parts)}")
+            agent_parts.append(f"{name} ({w}x)" if w != 1 else name)
+        lines.append(f"  {BOLD}Agents:{RESET} {', '.join(agent_parts)}")
 
-    # Deactivated modules
+    # Deactivated agents
     deactivated = [
         name for name, w in analysis.weights.items()
-        if w == 0 and name not in active_modules
+        if w == 0 and name not in active_agents
     ]
     if deactivated:
         lines.append(f"  {BOLD}Deactivated:{RESET} {', '.join(deactivated)}")
@@ -94,11 +94,11 @@ def _format_analysis_config(analysis: FinalAnalysis) -> list[str]:
         + (f" ({source_count} sources fetched)" if analysis.search_enabled and source_count else "")
     )
 
-    # Ad-hoc modules (from selection metadata)
+    # Ad-hoc agents (from selection metadata)
     meta = analysis.selection_metadata
-    if meta and meta.ad_hoc_modules:
-        adhoc_names = ", ".join(m.name for m in meta.ad_hoc_modules)
-        lines.append(f"  {BOLD}Ad-hoc modules:{RESET} {adhoc_names}")
+    if meta and meta.ad_hoc_agents:
+        adhoc_names = ", ".join(m.name for m in meta.ad_hoc_agents)
+        lines.append(f"  {BOLD}Ad-hoc agents:{RESET} {adhoc_names}")
 
     lines.append("")
     return lines
@@ -109,12 +109,12 @@ def _format_selection_metadata(analysis: FinalAnalysis) -> list[str]:
     if not meta or not meta.auto_selected:
         return []
     lines = [
-        f"{BOLD}Adaptive Module Selection:{RESET}",
-        f"  {BOLD}Selected modules:{RESET} {', '.join(meta.selected_modules)}",
+        f"{BOLD}Adaptive Agent Selection:{RESET}",
+        f"  {BOLD}Selected agents:{RESET} {', '.join(meta.selected_agents)}",
         f"  {BOLD}Reasoning:{RESET} {meta.selection_reasoning}",
     ]
-    if meta.ad_hoc_modules:
-        lines.append(f"  {BOLD}Ad-hoc modules:{RESET} {', '.join(m.name for m in meta.ad_hoc_modules)}")
+    if meta.ad_hoc_agents:
+        lines.append(f"  {BOLD}Ad-hoc agents:{RESET} {', '.join(m.name for m in meta.ad_hoc_agents)}")
     if meta.gap_check_reasoning:
         lines.append(f"  {BOLD}Gap check:{RESET} {meta.gap_check_reasoning}")
     lines.append("")
@@ -122,8 +122,8 @@ def _format_selection_metadata(analysis: FinalAnalysis) -> list[str]:
 
 
 def _format_resolution(res: ConflictResolution) -> list[str]:
-    if res.modules:
-        label = f"[{res.severity.upper()}] {' vs '.join(res.modules)} — {res.topic}"
+    if res.agents:
+        label = f"[{res.severity.upper()}] {' vs '.join(res.agents)} — {res.topic}"
     else:
         label = f"[RED FLAG] {res.topic}"
     return [
@@ -147,12 +147,12 @@ def _format_deep_research(analysis: FinalAnalysis) -> list[str]:
     return lines
 
 
-def format_round_summary(module_outputs: list[ModuleOutput], round_num: int) -> str:
+def format_round_summary(agent_outputs: list[AgentOutput], round_num: int) -> str:
     lines = [f"\n{BOLD}{'='*60}", f"  Round {round_num} Summary", f"{'='*60}{RESET}\n"]
-    for output in module_outputs:
+    for output in agent_outputs:
         if output.round != round_num:
             continue
-        lines.append(f"{CYAN}{BOLD}[{output.module_name.upper()}]{RESET}")
+        lines.append(f"{CYAN}{BOLD}[{output.agent_name.upper()}]{RESET}")
         for key, value in output.analysis.items():
             lines.append(f"  {key}: {value}")
         if output.flags:
@@ -213,7 +213,7 @@ def _format_audit(analysis: FinalAnalysis) -> list[str]:
         total5 = len(r5)
         ok5 = sum(1 for r in r5 if r.ok)
         status5 = _status(ok5 == total5) if total5 else f"{YELLOW}No pairs found{RESET}"
-        lines.append(f"  R1→R2 consistency:   {ok5}/{total5} modules consistent  {status5}" if total5 else f"  R1→R2 consistency:   {status5}")
+        lines.append(f"  R1→R2 consistency:   {ok5}/{total5} agents consistent  {status5}" if total5 else f"  R1→R2 consistency:   {status5}")
 
     for v in audit.layer1_violations + audit.layer2_violations:
         lines.append(f"    {RED}✗ {v}{RESET}")
@@ -232,7 +232,7 @@ def _format_audit(analysis: FinalAnalysis) -> list[str]:
     if audit.layer5_ran:
         for r in audit.layer5_results:
             if not r.ok:
-                lines.append(f"    {YELLOW}[{r.module}]{RESET}")
+                lines.append(f"    {YELLOW}[{r.agent}]{RESET}")
                 for issue in r.issues:
                     lines.append(f"      {RED}✗ {issue}{RESET}")
 
@@ -333,45 +333,45 @@ def format_detailed_report(analysis: FinalAnalysis) -> str:
         lines.append("")
 
     # Transition into detailed evidence
-    num_modules = len(set(o.module_name for o in analysis.module_outputs))
-    num_rounds = len(set(o.round for o in analysis.module_outputs))
+    num_agents = len(set(o.agent_name for o in analysis.agent_outputs))
+    num_rounds = len(set(o.round for o in analysis.agent_outputs))
     lines.append(f"{BOLD}{'─'*60}")
     lines.append(f"  Detailed Evidence")
     lines.append(f"{'─'*60}{RESET}\n")
     lines.append(
-        f"  The conclusions above are based on {num_modules} independent"
-        f" analysis modules, each running {num_rounds} rounds. In Round 1,"
-        f" every module assessed the problem independently. In Round 2,"
-        f" each module revised its analysis after reviewing the findings"
-        f" of all other modules. The synthesis then reconciled agreements,"
+        f"  The conclusions above are based on {num_agents} independent"
+        f" analysis agents, each running {num_rounds} rounds. In Round 1,"
+        f" every agent assessed the problem independently. In Round 2,"
+        f" each agent revised its analysis after reviewing the findings"
+        f" of all other agents. The synthesis then reconciled agreements,"
         f" conflicts, and trade-offs into the final assessment.\n"
     )
 
     # Round 1 — Independent Analysis
-    round1 = [o for o in analysis.module_outputs if o.round == 1]
+    round1 = [o for o in analysis.agent_outputs if o.round == 1]
     lines.append(f"{BOLD}{'─'*60}")
     lines.append(f"  Round 1 — Independent Analysis")
     lines.append(f"{'─'*60}{RESET}\n")
     if round1:
         for output in round1:
-            lines.extend(_format_module_detail(output))
+            lines.extend(_format_agent_detail(output))
     else:
         lines.append("  No Round 1 outputs recorded.\n")
 
-    # Section 3: Round 2 — Cross-Module Revision
-    round2 = [o for o in analysis.module_outputs if o.round == 2]
+    # Section 3: Round 2 — Cross-Agent Revision
+    round2 = [o for o in analysis.agent_outputs if o.round == 2]
     lines.append(f"{BOLD}{'─'*60}")
-    lines.append(f"  Round 2 — Cross-Module Revision")
+    lines.append(f"  Round 2 — Cross-Agent Revision")
     lines.append(f"{'─'*60}{RESET}\n")
     if round2:
         for output in round2:
-            lines.extend(_format_module_detail(output))
+            lines.extend(_format_agent_detail(output))
     else:
         lines.append("  No Round 2 outputs recorded.\n")
 
-    # Section 4: Conflicts & Cross-Module Tensions
+    # Section 4: Conflicts & Cross-Agent Tensions
     lines.append(f"{BOLD}{'─'*60}")
-    lines.append(f"  Conflicts & Cross-Module Tensions")
+    lines.append(f"  Conflicts & Cross-Agent Tensions")
     lines.append(f"{'─'*60}{RESET}\n")
     if analysis.conflicts:
         for conflict in analysis.conflicts:
@@ -473,7 +473,7 @@ def format_sources_md(analysis: FinalAnalysis) -> str:
 
 
 def format_detail_md(analysis: FinalAnalysis, detailed: bool = False) -> str:
-    """Collapsible detail panel: specialists → conflicts → deep research → module analyses → quality.
+    """Collapsible detail panel: specialists → conflicts → deep research → agent analyses → quality.
     detailed=True also includes Round 1 outputs.
     """
     parts: list[str] = []
@@ -482,11 +482,11 @@ def format_detail_md(analysis: FinalAnalysis, detailed: bool = False) -> str:
     meta = analysis.selection_metadata
     if meta and meta.auto_selected:
         parts.append("### Specialists")
-        parts.append(f"**Selected:** {', '.join(meta.selected_modules)}")
+        parts.append(f"**Selected:** {', '.join(meta.selected_agents)}")
         if meta.selection_reasoning:
             parts.append(f"\n**Reasoning:** {meta.selection_reasoning}")
-        if meta.ad_hoc_modules:
-            parts.append(f"\n**Gap-check additions:** {', '.join(m.name for m in meta.ad_hoc_modules)}")
+        if meta.ad_hoc_agents:
+            parts.append(f"\n**Gap-check additions:** {', '.join(m.name for m in meta.ad_hoc_agents)}")
             if meta.gap_check_reasoning:
                 parts.append(f"\n**Gap reasoning:** {meta.gap_check_reasoning}")
         parts.append("")
@@ -497,8 +497,8 @@ def format_detail_md(analysis: FinalAnalysis, detailed: bool = False) -> str:
         severity_icon = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "⚪"}
         for c in analysis.conflicts:
             icon = severity_icon.get(c.severity, "")
-            modules = " vs ".join(c.modules)
-            parts.append(f"**{icon} [{c.severity.upper()}]** {modules} — {c.topic}")
+            agents_str = " vs ".join(c.agents)
+            parts.append(f"**{icon} [{c.severity.upper()}]** {agents_str} — {c.topic}")
             parts.append(f"> {c.description}")
             if c.arbitration:
                 parts.append(
@@ -510,8 +510,8 @@ def format_detail_md(analysis: FinalAnalysis, detailed: bool = False) -> str:
     if analysis.conflict_resolutions:
         parts.append("### Deep Research Resolutions")
         for res in analysis.conflict_resolutions:
-            if res.modules:
-                label = f"[{res.severity.upper()}] {' vs '.join(res.modules)} — {res.topic}"
+            if res.agents:
+                label = f"[{res.severity.upper()}] {' vs '.join(res.agents)} — {res.topic}"
             else:
                 label = f"[RED FLAG] {res.topic}"
             parts.append(f"**{label}**")
@@ -519,20 +519,20 @@ def format_detail_md(analysis: FinalAnalysis, detailed: bool = False) -> str:
             parts.append(f"**Updated recommendation:** {res.updated_recommendation}")
             parts.append("")
 
-    # Module analyses — prefer R2; include R1 only when detailed=True
-    r2_names = {o.module_name for o in analysis.module_outputs if o.round == 2}
+    # Agent analyses — prefer R2; include R1 only when detailed=True
+    r2_names = {o.agent_name for o in analysis.agent_outputs if o.round == 2}
     to_show = []
-    for o in analysis.module_outputs:
+    for o in analysis.agent_outputs:
         if o.round == 2:
             to_show.append(o)
-        elif o.round == 1 and (detailed or o.module_name not in r2_names):
+        elif o.round == 1 and (detailed or o.agent_name not in r2_names):
             to_show.append(o)
 
     if to_show:
         parts.append("### Specialist Analyses")
         for o in to_show:
             round_label = "*(Round 2 — revised)*" if o.round == 2 else "*(Round 1)*"
-            parts.append(f"#### {o.module_name} {round_label}")
+            parts.append(f"#### {o.agent_name} {round_label}")
             for key, value in o.analysis.items():
                 if isinstance(value, list):
                     parts.append(f"**{key}:**")

@@ -43,8 +43,8 @@ def _extract_metrics(report: Dict) -> Dict[str, Optional[float]]:
     tu = report.get("token_usage") or {}
     m["analyze_input_tok"] = float(tu.get("analyze_input", 0))
     m["analyze_output_tok"] = float(tu.get("analyze_output", 0))
-    m["module_analyze_input_tok"] = float(tu.get("module_analyze_input", 0)) or None
-    m["module_analyze_output_tok"] = float(tu.get("module_analyze_output", 0)) or None
+    m["agent_analyze_input_tok"] = float(tu.get("agent_analyze_input", 0)) or None
+    m["agent_analyze_output_tok"] = float(tu.get("agent_analyze_output", 0)) or None
     m["synthesis_analyze_input_tok"] = float(tu.get("synthesis_analyze_input", 0)) or None
     m["synthesis_analyze_output_tok"] = float(tu.get("synthesis_analyze_output", 0)) or None
     m["ptc_orch_input_tok"] = float(tu.get("ptc_orchestrator_input", 0))
@@ -59,9 +59,9 @@ def _extract_metrics(report: Dict) -> Dict[str, Optional[float]]:
     m["round3_s"] = float(ti.get("round3_s", 0))
     m["total_s"] = float(ti.get("total_s", 0))
 
-    # Module completion
-    m["modules_attempted"] = float(report.get("modules_attempted", 0))
-    m["modules_completed"] = float(report.get("modules_completed", 0))
+    # Agent completion
+    m["agents_attempted"] = float(report.get("agents_attempted", 0))
+    m["agents_completed"] = float(report.get("agents_completed", 0))
 
     # Source metrics
     sources_claimed = float(report.get("sources_claimed", 0))
@@ -232,7 +232,7 @@ def cmd_compare(
     # Separators between metric groups
     _SEPARATORS = {
         "round1_s": True,
-        "modules_attempted": True,
+        "agents_attempted": True,
         "sources_claimed": True,
         "flags_red": True,
         "l3_ok_pct": True,

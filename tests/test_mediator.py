@@ -3,19 +3,19 @@ from unittest.mock import MagicMock, patch
 
 from src.llm.client import ClaudeClient
 from src.mediator import Mediator
-from src.models.schemas import FinalAnalysis, ModuleOutput, TokenUsage
+from src.models.schemas import FinalAnalysis, AgentOutput, TokenUsage
 from tests.conftest import SAMPLE_LLM_RESPONSE, SAMPLE_SYNTHESIS_RESPONSE, _fake_ptc_round
 
 SAMPLE_SYNTHESIS_WITH_DISCLAIMER = {
     **SAMPLE_SYNTHESIS_RESPONSE,
-    "deactivated_disclaimer": "The cost module was deactivated and its perspective is not reflected.",
+    "deactivated_disclaimer": "The cost agent was deactivated and its perspective is not reflected.",
 }
 
 
 def _make_ptc_client(synthesis_response=None):
     """Create a MagicMock ClaudeClient configured for PTC tests.
 
-    run_ptc_round is stubbed with _fake_ptc_round (returns ModuleOutputs directly).
+    run_ptc_round is stubbed with _fake_ptc_round (returns AgentOutputs directly).
     analyze returns synthesis_response (defaults to SAMPLE_SYNTHESIS_RESPONSE).
     token_usage returns a real TokenUsage() so Pydantic validation passes.
     """
@@ -46,14 +46,14 @@ class TestMediator:
         assert mediator_client.run_ptc_round.call_count == 2
         assert mediator_client.analyze.call_count == 1
 
-    def test_module_outputs_collected(self, mediator_client, sample_problem):
+    def test_agent_outputs_collected(self, mediator_client, sample_problem):
         mediator = Mediator(mediator_client)
         result = mediator.analyze(sample_problem)
 
-        # 3 round1 + 3 round2 = 6 module outputs
-        assert len(result.module_outputs) == 6
-        round1 = [o for o in result.module_outputs if o.round == 1]
-        round2 = [o for o in result.module_outputs if o.round == 2]
+        # 3 round1 + 3 round2 = 6 agent outputs
+        assert len(result.agent_outputs) == 6
+        round1 = [o for o in result.agent_outputs if o.round == 1]
+        round2 = [o for o in result.agent_outputs if o.round == 2]
         assert len(round1) == 3
         assert len(round2) == 3
 
@@ -62,7 +62,7 @@ class TestMediator:
         result = mediator.analyze(sample_problem)
 
         assert len(result.conflicts) > 0
-        assert result.conflicts[0].modules == ["market", "cost"]
+        assert result.conflicts[0].agents == ["market", "cost"]
         assert result.conflicts[0].topic == "burn rate"
         assert result.conflicts[0].severity == "high"
         assert result.synthesis != ""
@@ -72,16 +72,16 @@ class TestMediator:
         client = MagicMock(spec=ClaudeClient)
         client.token_usage.return_value = TokenUsage()
 
-        # R1 returns only 2 modules (market failed inside PTC)
+        # R1 returns only 2 agents (market failed inside PTC)
         call_count = [0]
-        def _partial_ptc(problem, modules, round1_outputs=None, searcher=None):
+        def _partial_ptc(problem, agents, round1_outputs=None, searcher=None):
             call_count[0] += 1
             round_num = 2 if round1_outputs is not None else 1
-            # R1: skip first module (simulates one module failing inside run_ptc_round)
-            effective = modules if round_num == 2 else modules[1:]
+            # R1: skip first agent (simulates one agent failing inside run_ptc_round)
+            effective = agents if round_num == 2 else agents[1:]
             return [
-                ModuleOutput(
-                    module_name=m.name,
+                AgentOutput(
+                    agent_name=m.name,
                     round=round_num,
                     analysis=SAMPLE_LLM_RESPONSE["analysis"],
                     flags=SAMPLE_LLM_RESPONSE["flags"],
@@ -97,8 +97,8 @@ class TestMediator:
         result = mediator.analyze(sample_problem)
 
         assert isinstance(result, FinalAnalysis)
-        # 2 round1 + 2 round2 = 4 module outputs
-        assert len(result.module_outputs) == 4
+        # 2 round1 + 2 round2 = 4 agent outputs
+        assert len(result.agent_outputs) == 4
 
     def test_total_failure_returns_empty_analysis(self, sample_problem):
         client = MagicMock(spec=ClaudeClient)
@@ -110,7 +110,7 @@ class TestMediator:
 
         assert isinstance(result, FinalAnalysis)
         assert result.problem == sample_problem
-        assert result.module_outputs == []
+        assert result.agent_outputs == []
         assert result.synthesis == ""
 
     def test_synthesis_failure_returns_partial_result(self, sample_problem):
@@ -123,7 +123,7 @@ class TestMediator:
         result = mediator.analyze(sample_problem)
 
         assert isinstance(result, FinalAnalysis)
-        assert len(result.module_outputs) == 6
+        assert len(result.agent_outputs) == 6
         assert result.synthesis == ""
         assert result.conflicts == []
 
@@ -133,18 +133,18 @@ class TestMediator:
 
         assert isinstance(result.sources, list)
         assert len(result.sources) > 0
-        # Module sources + synthesis sources, deduplicated and prefix-stripped
+        # Agent sources + synthesis sources, deduplicated and prefix-stripped
         for s in SAMPLE_LLM_RESPONSE["sources"]:
             assert s in result.sources
         for s in SAMPLE_SYNTHESIS_RESPONSE["sources"]:
             assert s in result.sources
-        # Module outputs have sources cleared (consolidated at top level)
-        for output in result.module_outputs:
+        # Agent outputs have sources cleared (consolidated at top level)
+        for output in result.agent_outputs:
             assert output.sources == []
 
 
 class TestMediatorWeights:
-    def test_weight_zero_deactivates_module(self, sample_problem):
+    def test_weight_zero_deactivates_agent(self, sample_problem):
         client = _make_ptc_client(synthesis_response=SAMPLE_SYNTHESIS_WITH_DISCLAIMER)
 
         mediator = Mediator(client, weights={"cost": 0})
@@ -153,21 +153,21 @@ class TestMediatorWeights:
         # run_ptc_round called for R1 + R2; analyze called for synthesis only
         assert client.run_ptc_round.call_count == 2
         assert client.analyze.call_count == 1
-        module_names = {o.module_name for o in result.module_outputs}
-        assert "cost" not in module_names
-        assert len(module_names) == 2
+        agent_names = {o.agent_name for o in result.agent_outputs}
+        assert "cost" not in agent_names
+        assert len(agent_names) == 2
 
-    def test_deactivated_modules_tracked(self):
+    def test_deactivated_agents_tracked(self):
         client = _make_ptc_client()
         mediator = Mediator(client, weights={"cost": 0, "risk": 0})
-        assert set(mediator.deactivated_modules) == {"cost", "risk"}
-        assert len(mediator.modules) == 1
+        assert set(mediator.deactivated_agents) == {"cost", "risk"}
+        assert len(mediator.agents) == 1
 
-    def test_weight_nonzero_keeps_module(self):
+    def test_weight_nonzero_keeps_agent(self):
         client = _make_ptc_client()
         mediator = Mediator(client, weights={"risk": 2})
-        assert mediator.deactivated_modules == []
-        assert len(mediator.modules) == 3
+        assert mediator.deactivated_agents == []
+        assert len(mediator.agents) == 3
 
     def test_disclaimer_passed_through(self, sample_problem):
         client = _make_ptc_client(synthesis_response=SAMPLE_SYNTHESIS_WITH_DISCLAIMER)
@@ -193,19 +193,19 @@ class TestMediatorWeights:
             mediator.analyze(sample_problem)
             _, kwargs = mock_prompt.call_args
             assert kwargs["weights"] == {"cost": 0, "risk": 2}
-            assert kwargs["deactivated_modules"] == ["cost"]
+            assert kwargs["deactivated_agents"] == ["cost"]
 
     def test_default_no_weights(self):
         client = _make_ptc_client()
         mediator = Mediator(client)
         assert mediator.weights == {}
-        assert mediator.deactivated_modules == []
-        assert len(mediator.modules) == 3
+        assert mediator.deactivated_agents == []
+        assert len(mediator.agents) == 3
 
 
 
 SAMPLE_GENERATION_RESPONSE = {
-    "modules": [
+    "agents": [
         {"name": "market_dynamics", "system_prompt": "You are a market dynamics expert. Respond with ONLY valid JSON, no other text."},
         {"name": "technical_feasibility", "system_prompt": "You are a technical feasibility expert. Respond with ONLY valid JSON, no other text."},
         {"name": "unit_economics", "system_prompt": "You are a unit economics expert. Respond with ONLY valid JSON, no other text."},
@@ -216,13 +216,13 @@ SAMPLE_GENERATION_RESPONSE = {
 SAMPLE_GAP_CHECK_NO_GAPS = {
     "gaps_identified": False,
     "reasoning": "Coverage is sufficient.",
-    "ad_hoc_modules": [],
+    "ad_hoc_agents": [],
 }
 
 SAMPLE_GAP_CHECK_WITH_ADHOC = {
     "gaps_identified": True,
     "reasoning": "Missing cultural perspective.",
-    "ad_hoc_modules": [
+    "ad_hoc_agents": [
         {"name": "cultural", "system_prompt": "You are a cultural expert. Respond with ONLY valid JSON."},
     ],
 }
@@ -230,14 +230,14 @@ SAMPLE_GAP_CHECK_WITH_ADHOC = {
 SAMPLE_GAP_CHECK_5_ADHOC = {
     "gaps_identified": True,
     "reasoning": "Many gaps.",
-    "ad_hoc_modules": [
+    "ad_hoc_agents": [
         {"name": f"adhoc{i}", "system_prompt": f"Expert {i}. Respond with ONLY valid JSON."}
         for i in range(5)
     ],
 }
 
 SAMPLE_GENERATION_MALFORMED = {
-    "modules": [
+    "agents": [
         {"name": "market_dynamics", "system_prompt": "You are a market dynamics expert. Respond with ONLY valid JSON, no other text."},
         {"name": "", "system_prompt": "Missing name — should be skipped"},
         {"system_prompt": "No name key at all — should be skipped"},
@@ -268,7 +268,7 @@ class TestMediatorAutoSelect:
         assert result.selection_metadata.auto_selected is True
 
     def test_auto_select_with_weight_zero_deactivates(self, sample_problem):
-        """Weight=0 vetoes an auto-selected module."""
+        """Weight=0 vetoes an auto-selected agent."""
         client = MagicMock(spec=ClaudeClient)
         client.token_usage.return_value = TokenUsage()
         client.analyze.side_effect = [
@@ -283,11 +283,11 @@ class TestMediatorAutoSelect:
 
         assert client.analyze.call_count == 3
         assert client.run_ptc_round.call_count == 2
-        module_names = {o.module_name for o in result.module_outputs}
-        assert "unit_economics" not in module_names
+        agent_names = {o.agent_name for o in result.agent_outputs}
+        assert "unit_economics" not in agent_names
 
     def test_auto_select_no_gaps(self, sample_problem):
-        """Gap check returns empty, no ad-hoc modules created."""
+        """Gap check returns empty, no ad-hoc agents created."""
         client = MagicMock(spec=ClaudeClient)
         client.token_usage.return_value = TokenUsage()
         client.analyze.side_effect = [
@@ -300,7 +300,7 @@ class TestMediatorAutoSelect:
         mediator = Mediator(client, auto_select=True)
         result = mediator.analyze(sample_problem)
 
-        assert result.selection_metadata.ad_hoc_modules == []
+        assert result.selection_metadata.ad_hoc_agents == []
 
     def test_auto_select_caps_adhoc_at_3(self, sample_problem):
         """LLM returns 5 ad-hoc, only 3 are used."""
@@ -316,10 +316,10 @@ class TestMediatorAutoSelect:
         mediator = Mediator(client, auto_select=True)
         result = mediator.analyze(sample_problem)
 
-        assert len(result.selection_metadata.ad_hoc_modules) == 3
+        assert len(result.selection_metadata.ad_hoc_agents) == 3
 
     def test_auto_select_malformed_entries_filtered(self, sample_problem):
-        """Malformed module entries (missing name/prompt) are dropped."""
+        """Malformed agent entries (missing name/prompt) are dropped."""
         client = MagicMock(spec=ClaudeClient)
         client.token_usage.return_value = TokenUsage()
         client.analyze.side_effect = [
@@ -332,10 +332,10 @@ class TestMediatorAutoSelect:
         mediator = Mediator(client, auto_select=True)
         result = mediator.analyze(sample_problem)
 
-        module_names = {o.module_name for o in result.module_outputs}
-        assert "market_dynamics" in module_names
+        agent_names = {o.agent_name for o in result.agent_outputs}
+        assert "market_dynamics" in agent_names
         # Empty-name and no-name entries should not appear
-        assert "" not in module_names
+        assert "" not in agent_names
 
     def test_default_mode_unaffected(self, sample_problem):
         """Without --auto-select, analyze only called for synthesis."""
@@ -365,14 +365,14 @@ class TestMediatorAutoSelect:
         meta = result.selection_metadata
         assert meta is not None
         assert meta.auto_selected is True
-        assert "market_dynamics" in meta.selected_modules
+        assert "market_dynamics" in meta.selected_agents
         assert meta.selection_reasoning == "These three cover demand, technical, and financial dimensions."
         assert meta.gap_check_reasoning == "Missing cultural perspective."
-        assert len(meta.ad_hoc_modules) == 1
-        assert meta.ad_hoc_modules[0].name == "cultural"
+        assert len(meta.ad_hoc_agents) == 1
+        assert meta.ad_hoc_agents[0].name == "cultural"
 
     def test_auto_select_fallback_on_failure(self, sample_problem):
-        """If selection LLM call fails, fall back to 3 default modules."""
+        """If selection LLM call fails, fall back to 3 default agents."""
         client = MagicMock(spec=ClaudeClient)
         client.token_usage.return_value = TokenUsage()
         client.analyze.side_effect = [Exception("API error"), SAMPLE_SYNTHESIS_RESPONSE]
@@ -383,7 +383,7 @@ class TestMediatorAutoSelect:
 
         # 1 failed selection + 1 synthesis = 2 analyze calls
         assert client.analyze.call_count == 2
-        assert len(result.module_outputs) == 6
+        assert len(result.agent_outputs) == 6
         assert result.selection_metadata is None
 
 

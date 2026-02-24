@@ -1,52 +1,52 @@
 import pytest
 from pydantic import ValidationError
 
-from src.models.schemas import AdHocModule, Conflict, FinalAnalysis, ModuleOutput, SelectionMetadata
+from src.models.schemas import AdHocAgent, Conflict, FinalAnalysis, AgentOutput, SelectionMetadata
 
 
-class TestModuleOutput:
+class TestAgentOutput:
     def test_basic_construction(self):
-        output = ModuleOutput(
-            module_name="market",
+        output = AgentOutput(
+            agent_name="market",
             round=1,
             analysis={"summary": "test"},
             flags=["green: ok"],
         )
-        assert output.module_name == "market"
+        assert output.agent_name == "market"
         assert output.round == 1
         assert output.revised is False
 
     def test_defaults(self):
-        output = ModuleOutput(module_name="tech", round=2)
+        output = AgentOutput(agent_name="tech", round=2)
         assert output.analysis == {}
         assert output.flags == []
         assert output.revised is False
 
     def test_missing_required_fields(self):
         with pytest.raises(ValidationError):
-            ModuleOutput()
+            AgentOutput()
 
     def test_revised_flag(self):
-        output = ModuleOutput(module_name="cost", round=2, revised=True)
+        output = AgentOutput(agent_name="cost", round=2, revised=True)
         assert output.revised is True
 
 
 class TestConflict:
     def test_basic_construction(self):
         c = Conflict(
-            modules=["market", "cost"],
+            agents=["market", "cost"],
             topic="burn rate",
             description="High burn rate risk",
             severity="high",
         )
-        assert c.modules == ["market", "cost"]
+        assert c.agents == ["market", "cost"]
         assert c.topic == "burn rate"
         assert c.severity == "high"
 
     def test_invalid_severity(self):
         with pytest.raises(ValidationError):
             Conflict(
-                modules=["market"],
+                agents=["market"],
                 topic="test",
                 description="test",
                 severity="extreme",
@@ -56,7 +56,7 @@ class TestConflict:
 class TestFinalAnalysis:
     def test_basic_construction(self):
         conflict = Conflict(
-            modules=["market", "cost"],
+            agents=["market", "cost"],
             topic="burn rate",
             description="conflict 1",
             severity="high",
@@ -74,7 +74,7 @@ class TestFinalAnalysis:
 
     def test_defaults(self):
         analysis = FinalAnalysis(problem="test")
-        assert analysis.module_outputs == []
+        assert analysis.agent_outputs == []
         assert analysis.conflicts == []
         assert analysis.synthesis == ""
         assert analysis.recommendations == []
@@ -84,39 +84,39 @@ class TestFinalAnalysis:
         with pytest.raises(ValidationError):
             FinalAnalysis()
 
-    def test_with_module_outputs(self):
-        output = ModuleOutput(module_name="legal", round=1)
-        analysis = FinalAnalysis(problem="test", module_outputs=[output])
-        assert len(analysis.module_outputs) == 1
-        assert analysis.module_outputs[0].module_name == "legal"
+    def test_with_agent_outputs(self):
+        output = AgentOutput(agent_name="legal", round=1)
+        analysis = FinalAnalysis(problem="test", agent_outputs=[output])
+        assert len(analysis.agent_outputs) == 1
+        assert analysis.agent_outputs[0].agent_name == "legal"
 
 
 class TestSelectionMetadata:
     def test_defaults(self):
         meta = SelectionMetadata()
         assert meta.auto_selected is False
-        assert meta.selected_modules == []
+        assert meta.selected_agents == []
         assert meta.selection_reasoning == ""
         assert meta.gap_check_reasoning == ""
-        assert meta.ad_hoc_modules == []
+        assert meta.ad_hoc_agents == []
 
-    def test_with_ad_hoc_modules(self):
-        adhoc = AdHocModule(name="cultural", system_prompt="You are a cultural expert.")
+    def test_with_ad_hoc_agents(self):
+        adhoc = AdHocAgent(name="cultural", system_prompt="You are a cultural expert.")
         meta = SelectionMetadata(
             auto_selected=True,
-            selected_modules=["market", "tech"],
-            selection_reasoning="Core modules",
+            selected_agents=["market", "tech"],
+            selection_reasoning="Core agents",
             gap_check_reasoning="Cultural gap found",
-            ad_hoc_modules=[adhoc],
+            ad_hoc_agents=[adhoc],
         )
         assert meta.auto_selected is True
-        assert len(meta.ad_hoc_modules) == 1
-        assert meta.ad_hoc_modules[0].name == "cultural"
+        assert len(meta.ad_hoc_agents) == 1
+        assert meta.ad_hoc_agents[0].name == "cultural"
 
 
-class TestAdHocModule:
+class TestAdHocAgent:
     def test_basic_construction(self):
-        m = AdHocModule(name="custom", system_prompt="You are a custom expert.")
+        m = AdHocAgent(name="custom", system_prompt="You are a custom expert.")
         assert m.name == "custom"
         assert "custom expert" in m.system_prompt
 
@@ -129,10 +129,10 @@ class TestFinalAnalysisSelectionMetadata:
     def test_with_metadata(self):
         meta = SelectionMetadata(
             auto_selected=True,
-            selected_modules=["market", "tech"],
-            selection_reasoning="Relevant modules",
+            selected_agents=["market", "tech"],
+            selection_reasoning="Relevant agents",
         )
         analysis = FinalAnalysis(problem="test", selection_metadata=meta)
         assert analysis.selection_metadata is not None
         assert analysis.selection_metadata.auto_selected is True
-        assert "market" in analysis.selection_metadata.selected_modules
+        assert "market" in analysis.selection_metadata.selected_agents

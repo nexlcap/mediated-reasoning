@@ -1,21 +1,21 @@
 """
 Layer 5: R1 → R2 consistency checker.
 
-For each module that has both a Round 1 and Round 2 output, asks the LLM to
+For each agent that has both a Round 1 and Round 2 output, asks the LLM to
 identify any specific statistics, numbers, dates, or factual claims that appear
-in Round 2 but have no basis in Round 1.  These are cross-module amplification
-candidates: the module may have treated another module's hallucination as fact.
+in Round 2 but have no basis in Round 1.  These are cross-agent amplification
+candidates: the agent may have treated another agent's hallucination as fact.
 """
 import json
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Optional
 
-from src.models.schemas import FinalAnalysis, ModuleOutput
+from src.models.schemas import FinalAnalysis, AgentOutput
 from src.llm.client import ClaudeClient
 
 
-def _summarise_output(mo: ModuleOutput) -> str:
+def _summarise_output(mo: AgentOutput) -> str:
     parts = []
     if isinstance(mo.analysis, dict):
         for k, v in mo.analysis.items():
@@ -26,11 +26,11 @@ def _summarise_output(mo: ModuleOutput) -> str:
     return "\n".join(parts)
 
 
-def _check_module(client: ClaudeClient, module: str,
-                  r1: ModuleOutput, r2: ModuleOutput) -> List[str]:
+def _check_agent(client: ClaudeClient, agent: str,
+                  r1: AgentOutput, r2: AgentOutput) -> List[str]:
     system = (
         "You are a consistency auditor for multi-round LLM analyses. "
-        "Compare the Round 1 and Round 2 outputs from the same module. "
+        "Compare the Round 1 and Round 2 outputs from the same agent. "
         "Identify any specific statistics, numbers, percentages, dates, named "
         "organisations, or concrete factual claims that appear in Round 2 but "
         "have NO basis in Round 1. Do not flag opinions, interpretations, or "
@@ -39,7 +39,7 @@ def _check_module(client: ClaudeClient, module: str,
         "Return {\"inconsistencies\": []} if Round 2 is fully consistent."
     )
     user = (
-        f"Module: {module}\n\n"
+        f"Agent: {agent}\n\n"
         f"=== Round 1 ===\n{_summarise_output(r1)}\n\n"
         f"=== Round 2 ===\n{_summarise_output(r2)}"
     )
@@ -58,20 +58,20 @@ def check_consistency(
     max_workers: int = 5,
 ) -> List[Dict]:
     """
-    Returns list of {module, issues, ok} dicts for every module with R1+R2 outputs.
+    Returns list of {agent, issues, ok} dicts for every agent with R1+R2 outputs.
     """
     if client is None:
         client = ClaudeClient(model="claude-haiku-4-5-20251001")
 
-    # Group by module name
-    by_module: Dict[str, Dict[int, ModuleOutput]] = {}
-    for mo in analysis.module_outputs:
-        by_module.setdefault(mo.module_name, {})[mo.round] = mo
+    # Group by agent name
+    by_agents: Dict[str, Dict[int, AgentOutput]] = {}
+    for mo in analysis.agent_outputs:
+        by_agents.setdefault(mo.agent_name, {})[mo.round] = mo
 
-    # Only check modules that have both rounds
+    # Only check agents that have both rounds
     pairs = {
         name: rounds
-        for name, rounds in by_module.items()
+        for name, rounds in by_agents.items()
         if 1 in rounds and 2 in rounds
     }
 
@@ -81,15 +81,15 @@ def check_consistency(
     results = []
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
         futures = {
-            ex.submit(_check_module, client, name, rounds[1], rounds[2]): name
+            ex.submit(_check_agent, client, name, rounds[1], rounds[2]): name
             for name, rounds in pairs.items()
         }
         for future in as_completed(futures):
             name = futures[future]
             issues = future.result()
-            results.append({"module": name, "issues": issues, "ok": not issues})
+            results.append({"agent": name, "issues": issues, "ok": not issues})
 
-    results.sort(key=lambda r: r["module"])
+    results.sort(key=lambda r: r["agent"])
     return results
 
 
@@ -108,18 +108,18 @@ def main(args: List[str] = None) -> int:
     results = check_consistency(analysis)
 
     if not results:
-        print("No module pairs with both rounds found.")
+        print("No agent pairs with both rounds found.")
         return 0
 
     ok = [r for r in results if r["ok"]]
     failures = [r for r in results if not r["ok"]]
 
-    print(f"Consistent: {len(ok)}/{len(results)} modules")
+    print(f"Consistent: {len(ok)}/{len(results)} agents")
 
     if failures:
         print("\nINCONSISTENCIES FOUND:")
         for r in failures:
-            print(f"\n  [{r['module']}]")
+            print(f"\n  [{r['agent']}]")
             for issue in r["issues"]:
                 print(f"    ✗ {issue}")
         return 1

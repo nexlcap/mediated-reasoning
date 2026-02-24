@@ -2,7 +2,7 @@
 Lightweight run quality gate — no LLM calls, pure metrics.
 
 Computes a score from structural signals already present in FinalAnalysis
-(source survival, module failures, critical flag density) and returns a
+(source survival, agent failures, critical flag density) and returns a
 RunQuality object attached to the analysis before it reaches the user.
 """
 from __future__ import annotations
@@ -20,12 +20,12 @@ def evaluate(analysis: "FinalAnalysis") -> "RunQuality":
     score = 1.0
     warnings: List[str] = []
 
-    # --- Module failures -------------------------------------------------
-    failed = analysis.modules_attempted - analysis.modules_completed
+    # --- Agent failures -------------------------------------------------
+    failed = analysis.agents_attempted - analysis.agents_completed
     if failed > 0:
         score -= 0.3 * failed
         warnings.append(
-            f"{failed} module(s) failed — analysis is incomplete"
+            f"{failed} agent(s) failed — analysis is incomplete"
         )
 
     # --- Source grounding ------------------------------------------------

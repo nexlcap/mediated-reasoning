@@ -1,4 +1,4 @@
-from src.models.schemas import Conflict, FinalAnalysis, ModuleOutput
+from src.models.schemas import Conflict, FinalAnalysis, AgentOutput
 from src.utils.formatters import (
     BOLD, RESET, RED, YELLOW, GREEN,
     _colorize_flag,
@@ -11,28 +11,28 @@ from src.utils.formatters import (
 def _make_analysis():
     return FinalAnalysis(
         problem="Test a mobile app idea",
-        module_outputs=[
-            ModuleOutput(
-                module_name="market",
+        agent_outputs=[
+            AgentOutput(
+                agent_name="market",
                 round=1,
                 analysis={"summary": "Large TAM", "key_findings": "Growing segment"},
                 flags=["green: viable market"],
             ),
-            ModuleOutput(
-                module_name="technical",
+            AgentOutput(
+                agent_name="technical",
                 round=1,
                 analysis={"summary": "Feasible stack", "risks": "Scaling concerns"},
                 flags=["yellow: moderate complexity"],
             ),
-            ModuleOutput(
-                module_name="market",
+            AgentOutput(
+                agent_name="market",
                 round=2,
                 analysis={"summary": "Revised TAM after feedback", "opportunities": "Adjacent markets"},
                 flags=["green: confirmed viable"],
                 revised=True,
             ),
-            ModuleOutput(
-                module_name="technical",
+            AgentOutput(
+                agent_name="technical",
                 round=2,
                 analysis={"summary": "Revised feasibility", "risks": "Reduced after review"},
                 flags=["green: feasible"],
@@ -41,7 +41,7 @@ def _make_analysis():
         ],
         conflicts=[
             Conflict(
-                modules=["market", "technical"],
+                agents=["market", "technical"],
                 topic="timeline",
                 description="Market optimism vs technical caution on timeline",
                 severity="medium",
@@ -90,10 +90,10 @@ class TestFormatDetailedReport:
     def test_contains_transition_text(self):
         analysis = _make_analysis()
         report = format_detailed_report(analysis)
-        assert "2 independent analysis modules" in report
+        assert "2 independent analysis agents" in report
         assert "each running 2 rounds" in report
 
-    def test_contains_module_names(self):
+    def test_contains_agent_names(self):
         analysis = _make_analysis()
         report = format_detailed_report(analysis)
         assert "MARKET" in report
@@ -172,7 +172,7 @@ class TestFormatCustomerReport:
         assert "high burn rate risk" in report
         assert "strong market fit" in report
 
-    def test_omits_module_names(self):
+    def test_omits_agent_names(self):
         analysis = _make_analysis()
         report = format_customer_report(analysis)
         assert "MARKET" not in report
@@ -187,13 +187,13 @@ class TestFormatCustomerReport:
     def test_omits_methodology(self):
         analysis = _make_analysis()
         report = format_customer_report(analysis)
-        assert "independent analysis modules" not in report
+        assert "independent analysis agents" not in report
         assert "Detailed Evidence" not in report
 
-    def test_omits_cross_module_sections(self):
+    def test_omits_cross_agent_sections(self):
         analysis = _make_analysis()
         report = format_customer_report(analysis)
-        assert "Cross-Module" not in report
+        assert "Cross-Agent" not in report
         assert "Conflicts" not in report
 
     def test_contains_sources(self):
@@ -213,7 +213,7 @@ class TestFormatCustomerReport:
 
 
 class TestDeactivatedDisclaimer:
-    DISCLAIMER = "The cost module was deactivated and its analysis is not reflected."
+    DISCLAIMER = "The cost agent was deactivated and its analysis is not reflected."
 
     def _make_analysis_with_disclaimer(self):
         analysis = _make_analysis()

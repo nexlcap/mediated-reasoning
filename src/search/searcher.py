@@ -47,40 +47,40 @@ class SearchPrePass:
     def _can_search(self) -> bool:
         return self.tavily is not None or self._ddgs is not None
 
-    def run_for_module(
+    def run_for_agent(
         self,
         problem: str,
-        module_name: str,
-        module_system_prompt: str,
+        agent_name: str,
+        agent_system_prompt: str,
         round_num: int = 1,
         prior_analysis: Optional[Dict] = None,
     ) -> Optional[SearchContext]:
-        """Run a domain-specific search for a single module.
+        """Run a domain-specific search for a single agent.
 
-        Round 2 queries also incorporate the module's Round 1 findings so the
+        Round 2 queries also incorporate the agent's Round 1 findings so the
         search fetches supporting evidence and counter-arguments.
         """
         if not self._can_search:
             return None
 
         try:
-            queries = self._generate_module_queries(
-                problem, module_name, module_system_prompt, round_num, prior_analysis
+            queries = self._generate_agent_queries(
+                problem, agent_name, agent_system_prompt, round_num, prior_analysis
             )
             if not queries:
-                logger.warning("No queries generated for %s round %d", module_name, round_num)
+                logger.warning("No queries generated for %s round %d", agent_name, round_num)
                 return None
 
             context = self._fetch_results(queries, cap=8)
             if context:
                 logger.info(
                     "Search: %s round %d — %d results from %d queries",
-                    module_name, round_num, len(context.results), len(queries),
+                    agent_name, round_num, len(context.results), len(queries),
                 )
             return context
 
         except Exception as e:
-            logger.error("Module search for %s (round %d) failed: %s", module_name, round_num, e)
+            logger.error("Agent search for %s (round %d) failed: %s", agent_name, round_num, e)
             return None
 
     def run_for_conflict(
@@ -109,7 +109,7 @@ class SearchPrePass:
             return None
 
     def run(self, problem: str) -> Optional[SearchContext]:
-        """Legacy single pre-pass (topic-level queries, not module-specific)."""
+        """Legacy single pre-pass (topic-level queries, not agent-specific)."""
         if not self._can_search:
             logger.warning("No search backend configured — skipping search")
             return None
@@ -128,15 +128,15 @@ class SearchPrePass:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _generate_module_queries(
+    def _generate_agent_queries(
         self,
         problem: str,
-        module_name: str,
-        module_system_prompt: str,
+        agent_name: str,
+        agent_system_prompt: str,
         round_num: int,
         prior_analysis: Optional[Dict],
     ) -> List[str]:
-        domain_hint = module_system_prompt[:300] if module_system_prompt else module_name
+        domain_hint = agent_system_prompt[:300] if agent_system_prompt else agent_name
 
         prior_context = ""
         if round_num == 2 and prior_analysis:
@@ -148,17 +148,17 @@ class SearchPrePass:
 
         system = (
             "You are a research assistant. Generate 3-4 focused web search queries "
-            "for a specific analysis module. Queries must cover BOTH the specific topic "
+            "for a specific analysis agent. Queries must cover BOTH the specific topic "
             "AND general domain knowledge (e.g. market data, legal frameworks, technical "
             "benchmarks, industry statistics, historical precedents) relevant to this "
-            "module's perspective. Return ONLY a JSON object with a 'queries' key "
+            "agent's perspective. Return ONLY a JSON object with a 'queries' key "
             "containing an array of query strings. No other text."
         )
         user = (
             f"Problem: {problem}\n"
-            f"Module domain: {domain_hint}"
+            f"Agent domain: {domain_hint}"
             f"{prior_context}\n"
-            "Generate queries that help this module produce well-sourced analysis."
+            "Generate queries that help this agent produce well-sourced analysis."
         )
         try:
             result = self.llm.analyze(system, user)
@@ -167,7 +167,7 @@ class SearchPrePass:
                 return [q for q in queries if isinstance(q, str)][:4]
             return []
         except Exception as e:
-            logger.warning("Module query generation failed for %s: %s", module_name, e)
+            logger.warning("Agent query generation failed for %s: %s", agent_name, e)
             return []
 
     def _generate_conflict_queries(
@@ -256,7 +256,7 @@ class SearchPrePass:
         """Fetch search results for a list of queries, deduplicated by URL.
 
         Results are cached by query string for the lifetime of this instance so
-        identical queries from different modules or rounds do not trigger
+        identical queries from different agents or rounds do not trigger
         redundant API calls.
         """
         seen_urls: set = set()

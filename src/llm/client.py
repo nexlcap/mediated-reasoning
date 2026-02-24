@@ -122,61 +122,61 @@ class ClaudeClient:
     def run_ptc_round(
         self,
         problem: str,
-        modules: list,                          # List[BaseModule]
+        agents: list,                          # List[BaseAgent]
         round1_outputs: Optional[list] = None,  # list[dict] — None for Round 1
         searcher=None,
-    ) -> list:                                  # List[ModuleOutput]
+    ) -> list:                                  # List[AgentOutput]
         """Run one analysis round using programmatic tool calling.
 
-        All module analyses are dispatched in parallel by an orchestrating
-        LLM call. ModuleOutput objects are captured in the tool handler and
+        All agent analyses are dispatched in parallel by an orchestrating
+        LLM call. AgentOutput objects are captured in the tool handler and
         never enter the orchestrating context.
         """
         round_num = 2 if round1_outputs is not None else 1
-        module_map = {m.name: m for m in modules}
-        module_names = [m.name for m in modules]
+        agent_map = {m.name: m for m in agents}
+        agent_names = [m.name for m in agents]
 
         # OpenAI-style function tool definition (LiteLLM normalises this
         # across all providers, including Anthropic)
         analyze_tool = {
             "type": "function",
             "function": {
-                "name": "analyze_module",
+                "name": "analyze_agent",
                 "description": (
-                    f"Run Round {round_num} analysis for one expert module. "
-                    "You MUST call this tool once for EVERY module listed, all in the same response."
+                    f"Run Round {round_num} analysis for one expert agent. "
+                    "You MUST call this tool once for EVERY agent listed, all in the same response."
                 ),
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "module_name": {
+                        "agent_name": {
                             "type": "string",
-                            "enum": module_names,
-                            "description": "Which expert module to run",
+                            "enum": agent_names,
+                            "description": "Which expert agent to run",
                         }
                     },
-                    "required": ["module_name"],
+                    "required": ["agent_name"],
                 },
             },
         }
         tools = [analyze_tool]
 
-        module_list = ", ".join(module_names)
+        agent_list = ", ".join(agent_names)
         system = (
             "You orchestrate a parallel analysis pipeline. "
-            f"Call analyze_module once for EVERY module in a single response: {module_list}. "
-            "Do not explain or summarize — just call the tool for each module."
+            f"Call analyze_agent once for EVERY agent in a single response: {agent_list}. "
+            "Do not explain or summarize — just call the tool for each agent."
         )
         user = (
             f"Run Round {round_num} analysis. "
-            f"Call analyze_module for ALL {len(module_names)} modules: {module_list}"
+            f"Call analyze_agent for ALL {len(agent_names)} agents: {agent_list}"
         )
 
         messages = [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ]
-        captured: dict = {}   # module_name -> ModuleOutput
+        captured: dict = {}   # agent_name -> AgentOutput
 
         while True:
             response = litellm.completion(
@@ -218,14 +218,14 @@ class ClaudeClient:
                 futures = {}
                 for tc in tool_calls:
                     args = json.loads(tc.function.arguments)
-                    name = args.get("module_name")
-                    module = module_map.get(name)
-                    if not module:
+                    name = args.get("agent_name")
+                    agent = agent_map.get(name)
+                    if not agent:
                         continue
                     if round_num == 1:
-                        f = executor.submit(_with_otel_ctx, current_ctx, module.run_round1, problem, searcher)
+                        f = executor.submit(_with_otel_ctx, current_ctx, agent.run_round1, problem, searcher)
                     else:
-                        f = executor.submit(_with_otel_ctx, current_ctx, module.run_round2, problem, round1_outputs, searcher)
+                        f = executor.submit(_with_otel_ctx, current_ctx, agent.run_round2, problem, round1_outputs, searcher)
                     futures[f] = (tc.id, name)
 
                 for f, (tc_id, name) in futures.items():
@@ -238,7 +238,7 @@ class ClaudeClient:
                             "content": "ok",
                         })
                     except Exception as e:
-                        logger.error("Module %s failed in Round %d: %s", name, round_num, e)
+                        logger.error("Agent %s failed in Round %d: %s", name, round_num, e)
                         tool_result_messages.append({
                             "role": "tool",
                             "tool_call_id": tc_id,
@@ -247,8 +247,8 @@ class ClaudeClient:
 
             messages = messages + [assistant_msg] + tool_result_messages
 
-        module_order = {m.name: i for i, m in enumerate(modules)}
-        return sorted(captured.values(), key=lambda o: module_order.get(o.module_name, 999))
+        agent_order = {m.name: i for i, m in enumerate(agents)}
+        return sorted(captured.values(), key=lambda o: agent_order.get(o.agent_name, 999))
 
     @staticmethod
     def _extract_json(text: str) -> Dict:

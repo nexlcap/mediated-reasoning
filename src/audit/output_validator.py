@@ -56,7 +56,7 @@ def _collect_all_text(analysis: FinalAnalysis) -> str:
     parts = [str(analysis.synthesis), str(analysis.deactivated_disclaimer)]
     parts.extend(str(r) for r in analysis.recommendations)
     parts.extend(str(f) for f in analysis.priority_flags)
-    for mo in analysis.module_outputs:
+    for mo in analysis.agent_outputs:
         if isinstance(mo.analysis, dict):
             parts.append(json.dumps(mo.analysis))
         else:

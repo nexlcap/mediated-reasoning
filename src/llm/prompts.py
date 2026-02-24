@@ -11,14 +11,14 @@ def _format_round1_outputs(
 ) -> str:
     """Serialise Round 1 outputs for inclusion in prompts.
 
-    brief=True (used for R2 cross-module context): only summary + flags.
+    brief=True (used for R2 cross-agent context): only summary + flags.
     brief=False (default, used for synthesis): full analysis dict.
     """
     sections = []
     for output in round1_outputs:
-        name = output['module_name']
+        name = output['agent_name']
         weight = (weights or {}).get(name, 1)
-        header = f"--- {name.upper()} MODULE"
+        header = f"--- {name.upper()} AGENT"
         if weight != 1:
             header += f" (Weight: {weight}x)"
         header += " ---"
@@ -38,9 +38,9 @@ def _format_round1_outputs(
     return "\n".join(sections)
 
 
-# --- System prompts per module ---
+# --- System prompts per agent ---
 
-MODULE_SYSTEM_PROMPTS = {
+AGENT_SYSTEM_PROMPTS = {
     "market": (
         "You are a market analysis expert. Evaluate the given problem/idea from a "
         "market perspective: market size, competitive landscape, customer demand, "
@@ -115,9 +115,9 @@ MODULE_SYSTEM_PROMPTS = {
     ),
 }
 
-ALL_MODULE_NAMES = sorted(MODULE_SYSTEM_PROMPTS.keys())
+ALL_AGENT_NAMES = sorted(AGENT_SYSTEM_PROMPTS.keys())
 
-MODULE_DESCRIPTIONS = {
+AGENT_DESCRIPTIONS = {
     "market": "Market size, competitive landscape, customer demand, product-market fit",
     "tech": "Technology stack, implementation complexity, technical risks, dependencies",
     "cost": "Financial analysis, investment, operating costs, revenue projections, break-even",
@@ -133,10 +133,10 @@ MODULE_DESCRIPTIONS = {
 }
 
 
-def _module_json_instruction(has_search_context: bool) -> str:
-    """Return the JSON schema instruction for module prompts.
+def _agent_json_instruction(has_search_context: bool) -> str:
+    """Return the JSON schema instruction for agent prompts.
 
-    When search context is present, modules must cite exclusively from the
+    When search context is present, agents must cite exclusively from the
     provided grounded sources. When absent, sources must be empty — fabricating
     source names or URLs is never acceptable.
     """
@@ -177,11 +177,11 @@ def _module_json_instruction(has_search_context: bool) -> str:
 
 
 # Keep as a constant for any existing callers that reference it directly
-JSON_SCHEMA_INSTRUCTION = _module_json_instruction(has_search_context=True)
+JSON_SCHEMA_INSTRUCTION = _agent_json_instruction(has_search_context=True)
 
 
-def build_round1_prompt(module_name: str, problem: str, search_context=None) -> tuple[str, str]:
-    system = MODULE_SYSTEM_PROMPTS[module_name]
+def build_round1_prompt(agent_name: str, problem: str, search_context=None) -> tuple[str, str]:
+    system = AGENT_SYSTEM_PROMPTS[agent_name]
     search_section = ""
     if search_context:
         search_section = search_context.format_for_prompt() + "\n\n"
@@ -189,36 +189,36 @@ def build_round1_prompt(module_name: str, problem: str, search_context=None) -> 
         f"Analyze this problem/idea independently:\n\n"
         f"{problem}\n\n"
         f"{search_section}"
-        f"{_module_json_instruction(has_search_context=bool(search_context))}"
+        f"{_agent_json_instruction(has_search_context=bool(search_context))}"
     )
     return system, user
 
 
 def build_round2_prompt(
-    module_name: str, problem: str, round1_outputs: List[Dict], search_context=None
+    agent_name: str, problem: str, round1_outputs: List[Dict], search_context=None
 ) -> tuple[str, str]:
-    system = MODULE_SYSTEM_PROMPTS[module_name] + (
-        "\n\nYou are now in Round 2. You have seen the other modules' Round 1 analyses. "
+    system = AGENT_SYSTEM_PROMPTS[agent_name] + (
+        "\n\nYou are now in Round 2. You have seen the other agents' Round 1 analyses. "
         "Revise your analysis considering their perspectives. Note any agreements, "
-        "disagreements, or new insights from cross-module review. "
+        "disagreements, or new insights from cross-agent review. "
         "IMPORTANT: Do not introduce new specific statistics, percentages, version numbers, "
         "dates, or named metrics that are not present in your Round 1 analysis or in the "
         "Grounded Research Context provided below. Any new concrete figure you include MUST "
         "have an inline [N] citation from that context. Do not invent numbers from training "
         "memory. Do not soften or retract critical findings from your Round 1 analysis — "
-        "if you disagree with other modules, state the disagreement explicitly."
+        "if you disagree with other agents, state the disagreement explicitly."
     )
-    other_outputs = [o for o in round1_outputs if o["module_name"] != module_name]
+    other_outputs = [o for o in round1_outputs if o["agent_name"] != agent_name]
     search_section = ""
     if search_context:
         search_section = search_context.format_for_prompt() + "\n\n"
     user = (
         f"Original problem:\n{problem}\n\n"
-        f"Other modules' Round 1 analyses:\n\n"
+        f"Other agents' Round 1 analyses:\n\n"
         f"{_format_round1_outputs(other_outputs, brief=True)}\n\n"
         f"{search_section}"
-        f"Now provide your revised analysis for the {module_name} perspective.\n\n"
-        f"{_module_json_instruction(has_search_context=bool(search_context))}"
+        f"Now provide your revised analysis for the {agent_name} perspective.\n\n"
+        f"{_agent_json_instruction(has_search_context=bool(search_context))}"
     )
     return system, user
 
@@ -227,13 +227,13 @@ def build_synthesis_prompt(
     problem: str,
     all_outputs: List[Dict],
     weights: Optional[Dict[str, float]] = None,
-    deactivated_modules: Optional[List[str]] = None,
+    deactivated_agents: Optional[List[str]] = None,
     search_context=None,
     global_sources: Optional[List[str]] = None,
 ) -> tuple[str, str]:
     system = (
         "You are a senior strategic advisor synthesizing multiple expert analyses. "
-        "Identify conflicts between modules, surface critical flags, and produce "
+        "Identify conflicts between agents, surface critical flags, and produce "
         "actionable recommendations. "
         "Respond with ONLY valid JSON, no other text."
     )
@@ -243,22 +243,22 @@ def build_synthesis_prompt(
         active_weights = {k: v for k, v in weights.items() if v != 0}
         if active_weights:
             weight_instruction = (
-                "\n\nModules with higher weights should carry proportionally more "
+                "\n\nAgents with higher weights should carry proportionally more "
                 "influence in your synthesis and recommendations."
             )
 
     deactivated_instruction = ""
     deactivated_field = ""
-    if deactivated_modules:
-        names = ", ".join(deactivated_modules)
+    if deactivated_agents:
+        names = ", ".join(deactivated_agents)
         deactivated_instruction = (
-            f"\n\nIMPORTANT: The following modules were deactivated by the user: {names}. "
+            f"\n\nIMPORTANT: The following agents were deactivated by the user: {names}. "
             "You MUST include a disclaimer in your synthesis AND in the dedicated "
-            '"deactivated_disclaimer" field stating which modules were deactivated '
+            '"deactivated_disclaimer" field stating which agents were deactivated '
             "and that their perspectives are not reflected in this analysis."
         )
         deactivated_field = (
-            '  "deactivated_disclaimer": "Disclaimer noting which modules were '
+            '  "deactivated_disclaimer": "Disclaimer noting which agents were '
             'deactivated and that their analysis is absent",\n'
         )
 
@@ -303,22 +303,22 @@ def build_synthesis_prompt(
 
     user = (
         f"Original problem:\n{problem}\n\n"
-        f"All module analyses (Rounds 1 and 2):\n\n"
+        f"All agent analyses (Rounds 1 and 2):\n\n"
         f"{_format_round1_outputs(all_outputs, weights=weights)}\n\n"
         f"{search_section}"
         f"{source_list_section}"
         "Synthesize these analyses into a final assessment.\n\n"
         f"{weight_instruction}{deactivated_instruction}\n\n"
-        "CONFLICT ARBITRATION: For each conflict, set \"arbitration.authority\" to the module "
+        "CONFLICT ARBITRATION: For each conflict, set \"arbitration.authority\" to the agent "
         "whose core domain makes it the most credible voice on that specific topic (e.g. cost "
         "owns financial estimates, tech owns implementation feasibility, legal owns compliance). "
         "Write a one-sentence \"arbitration.reasoning\" explaining why. This guides the "
-        "synthesis but does not silence the other module's findings.\n\n"
+        "synthesis but does not silence the other agent's findings.\n\n"
         "Return your response as a JSON object with exactly these fields:\n"
         '{\n'
         f'{deactivated_field}'
         '  "conflicts": [\n'
-        '    {"modules": ["market", "cost"], "topic": "burn rate", '
+        '    {"agents": ["market", "cost"], "topic": "burn rate", '
         '"description": "Market sees high demand but cost flags high burn rate [1][2]", '
         '"severity": "high", '
         '"arbitration": {"authority": "cost", "reasoning": "Cost owns financial modelling; market\'s estimate is directional only."}},\n'
@@ -338,8 +338,8 @@ def build_resolution_prompt(
     problem: str,
     topic: str,
     description: str,
-    modules: List[str],
-    module_positions: Dict[str, str],
+    agents: List[str],
+    agent_positions: Dict[str, str],
     search_context=None,
 ) -> tuple[str, str]:
     """Build a prompt to resolve a single conflict or red flag with fresh evidence."""
@@ -350,14 +350,14 @@ def build_resolution_prompt(
         "Respond with ONLY valid JSON, no other text."
     )
 
-    label = "CONFLICT" if modules else "CRITICAL FLAG"
-    modules_text = f" (between {' vs '.join(modules)})" if modules else ""
+    label = "CONFLICT" if agents else "CRITICAL FLAG"
+    agents_text = f" (between {' vs '.join(agents)})" if agents else ""
 
     positions_section = ""
-    if module_positions:
+    if agent_positions:
         parts = [
-            f"{name.upper()} MODULE POSITION:\n{pos}"
-            for name, pos in module_positions.items()
+            f"{name.upper()} AGENT POSITION:\n{pos}"
+            for name, pos in agent_positions.items()
             if pos
         ]
         if parts:
@@ -378,7 +378,7 @@ def build_resolution_prompt(
 
     user = (
         f"Problem being analyzed: {problem}\n\n"
-        f"{label}{modules_text}: {topic}\n"
+        f"{label}{agents_text}: {topic}\n"
         f"Description: {description}\n\n"
         f"{positions_section}"
         f"{search_section}"
@@ -396,7 +396,7 @@ def build_resolution_prompt(
     return system, user
 
 
-def build_dynamic_module_generation_prompt(problem: str) -> tuple[str, str]:
+def build_dynamic_agent_generation_prompt(problem: str) -> tuple[str, str]:
     system = (
         "You are an expert problem decomposer. Given any problem or decision, you design "
         "a custom panel of specialist analysts whose combined perspectives illuminate every "
@@ -409,14 +409,14 @@ def build_dynamic_module_generation_prompt(problem: str) -> tuple[str, str]:
         "Design a panel of 3-7 specialist analysts for this problem. Each specialist "
         "must be unique and non-overlapping.\n\n"
         "Name each specialist using a short snake_case identifier (e.g. 'enterprise_sales_motion', "
-        "'b2b_pricing_strategy'). The identifier becomes the module's label in the final report.\n\n"
+        "'b2b_pricing_strategy'). The identifier becomes the agent's label in the final report.\n\n"
         "For each specialist, write a system prompt that:\n"
         "- Opens with \"You are a [role] expert.\"\n"
         "- States the specific lens they apply (2-3 sentences)\n"
         "- Ends exactly with: \"Respond with ONLY valid JSON, no other text.\"\n\n"
         "Return your response as a JSON object with exactly these fields:\n"
         "{\n"
-        '  "modules": [\n'
+        '  "agents": [\n'
         '    {"name": "specialist_name", "system_prompt": "You are a ... expert. ... Respond with ONLY valid JSON, no other text."},\n'
         "    ...\n"
         "  ],\n"
@@ -426,34 +426,34 @@ def build_dynamic_module_generation_prompt(problem: str) -> tuple[str, str]:
     return system, user
 
 
-def build_module_selection_prompt(problem: str) -> tuple[str, str]:
+def build_agent_selection_prompt(problem: str) -> tuple[str, str]:
     system = (
         "You are an expert at scoping multi-perspective analyses. "
-        "Given a problem, you select which analysis modules are relevant. "
+        "Given a problem, you select which analysis agents are relevant. "
         "Respond with ONLY valid JSON, no other text."
     )
 
-    module_list = "\n".join(
-        f"- {name}: {MODULE_DESCRIPTIONS[name]}"
-        for name in ALL_MODULE_NAMES
+    agent_list = "\n".join(
+        f"- {name}: {AGENT_DESCRIPTIONS[name]}"
+        for name in ALL_AGENT_NAMES
     )
 
     user = (
         f"Problem to analyze:\n{problem}\n\n"
-        f"Available analysis modules:\n{module_list}\n\n"
-        "Select 3-7 modules that are most relevant to this problem. "
-        "Only include modules whose perspective adds meaningful value.\n\n"
+        f"Available analysis agents:\n{agent_list}\n\n"
+        "Select 3-7 agents that are most relevant to this problem. "
+        "Only include agents whose perspective adds meaningful value.\n\n"
         "Return your response as a JSON object with exactly these fields:\n"
         '{\n'
-        '  "selected_modules": ["module1", "module2", ...],\n'
-        '  "reasoning": "Brief explanation of why these modules were selected"\n'
+        '  "selected_agents": ["agent1", "agent2", ...],\n'
+        '  "reasoning": "Brief explanation of why these agents were selected"\n'
         '}'
     )
     return system, user
 
 
 def build_gap_check_prompt(
-    problem: str, selected_modules: list[dict]
+    problem: str, selected_agents: list[dict]
 ) -> tuple[str, str]:
     system = (
         "You are an expert at identifying analytical blind spots. "
@@ -463,7 +463,7 @@ def build_gap_check_prompt(
     )
     panel_lines = "\n".join(
         f"- {m['name']}: {m['system_prompt'].split('.')[0]}."
-        for m in selected_modules
+        for m in selected_agents
         if m.get("name") and m.get("system_prompt")
     )
     user = (
@@ -477,7 +477,7 @@ def build_gap_check_prompt(
         "{\n"
         '  "gaps_identified": true/false,\n'
         '  "reasoning": "Explanation of gaps found or why coverage is sufficient",\n'
-        '  "ad_hoc_modules": [...]\n'
+        '  "ad_hoc_agents": [...]\n'
         "}"
     )
     return system, user
@@ -496,19 +496,19 @@ def build_followup_prompt(
         "needed, and be explicit when you are going beyond the analysis."
     )
 
-    # Summarize module outputs (prefer round 2 when available)
-    module_sections = []
-    for output in analysis.module_outputs:
+    # Summarize agent outputs (prefer round 2 when available)
+    agent_sections = []
+    for output in analysis.agent_outputs:
         if output.round == 2 or not any(
-            o.module_name == output.module_name and o.round == 2
-            for o in analysis.module_outputs
+            o.agent_name == output.agent_name and o.round == 2
+            for o in analysis.agent_outputs
         ):
             summary = output.analysis.get("summary", "")
-            module_sections.append(f"- {output.module_name}: {summary}")
-    modules_text = "\n".join(module_sections)
+            agent_sections.append(f"- {output.agent_name}: {summary}")
+    agents_text = "\n".join(agent_sections)
 
     conflicts_text = "\n".join(
-        f"- {c.topic} ({', '.join(c.modules)}): {c.description}"
+        f"- {c.topic} ({', '.join(c.agents)}): {c.description}"
         for c in analysis.conflicts
     )
 
@@ -519,7 +519,7 @@ def build_followup_prompt(
     user = (
         f"Problem: {problem}\n\n"
         f"Synthesis:\n{analysis.synthesis}\n\n"
-        f"Module summaries:\n{modules_text}\n\n"
+        f"Agent summaries:\n{agents_text}\n\n"
         f"Conflicts:\n{conflicts_text}\n\n"
         f"Recommendations:\n{recommendations_text}\n\n"
         f"Follow-up question: {question}"

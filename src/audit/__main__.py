@@ -147,15 +147,15 @@ def main() -> int:
             from src.audit.consistency_checker import check_consistency
             results = check_consistency(analysis)
             if not results:
-                print("No module pairs with both rounds found.")
+                print("No agent pairs with both rounds found.")
             else:
                 ok = [r for r in results if r["ok"]]
                 failures = [r for r in results if not r["ok"]]
-                print(f"Consistent: {len(ok)}/{len(results)} modules")
+                print(f"Consistent: {len(ok)}/{len(results)} agents")
                 if failures:
                     exit_code = 1
                     for r in failures:
-                        print(f"\n  [{r['module']}]")
+                        print(f"\n  [{r['agent']}]")
                         for issue in r["issues"]:
                             print(f"    ✗ {issue}")
             # Store in audit summary for write-back

@@ -4,12 +4,12 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from src.llm.client import ClaudeClient
-from src.models.schemas import ModuleOutput
+from src.models.schemas import AgentOutput
 from tests.conftest import SAMPLE_LLM_RESPONSE
 
 
-def _make_module(name, round1_output=None, round2_output=None, error=None):
-    """Create a mock module with the given name and return values."""
+def _make_agent(name, round1_output=None, round2_output=None, error=None):
+    """Create a mock agent with the given name and return values."""
     m = MagicMock()
     m.name = name
     if error:
@@ -24,8 +24,8 @@ def _make_module(name, round1_output=None, round2_output=None, error=None):
 
 
 def _sample_output(name, round_num):
-    return ModuleOutput(
-        module_name=name,
+    return AgentOutput(
+        agent_name=name,
         round=round_num,
         analysis=SAMPLE_LLM_RESPONSE["analysis"],
         flags=SAMPLE_LLM_RESPONSE["flags"],
@@ -33,12 +33,12 @@ def _sample_output(name, round_num):
     )
 
 
-def _make_tool_call(tc_id, module_name):
+def _make_tool_call(tc_id, agent_name):
     """Build an OpenAI-style tool_call mock (as returned by LiteLLM)."""
     tc = MagicMock()
     tc.id = tc_id
-    tc.function.name = "analyze_module"
-    tc.function.arguments = json.dumps({"module_name": module_name})
+    tc.function.name = "analyze_agent"
+    tc.function.arguments = json.dumps({"agent_name": agent_name})
     return tc
 
 
@@ -69,9 +69,9 @@ class TestRunPtcRound:
         return ClaudeClient()
 
     def test_happy_path_round1(self, ptc_client):
-        """All modules invoked in parallel via tool_calls; results captured in order."""
-        m1 = _make_module("market", round1_output=_sample_output("market", 1))
-        m2 = _make_module("tech", round1_output=_sample_output("tech", 1))
+        """All agents invoked in parallel via tool_calls; results captured in order."""
+        m1 = _make_agent("market", round1_output=_sample_output("market", 1))
+        m2 = _make_agent("tech", round1_output=_sample_output("tech", 1))
 
         tc1 = _make_tool_call("tc_1", "market")
         tc2 = _make_tool_call("tc_2", "tech")
@@ -83,15 +83,15 @@ class TestRunPtcRound:
             results = ptc_client.run_ptc_round("test problem", [m1, m2])
 
         assert len(results) == 2
-        assert results[0].module_name == "market"
-        assert results[1].module_name == "tech"
+        assert results[0].agent_name == "market"
+        assert results[1].agent_name == "tech"
         m1.run_round1.assert_called_once_with("test problem", None)
         m2.run_round1.assert_called_once_with("test problem", None)
 
     def test_partial_failure(self, ptc_client):
-        """One module errors; successful modules still returned; failed module absent."""
-        m1 = _make_module("market", round1_output=_sample_output("market", 1))
-        m2 = _make_module("tech", error=Exception("API timeout"))
+        """One agent errors; successful agents still returned; failed agent absent."""
+        m1 = _make_agent("market", round1_output=_sample_output("market", 1))
+        m2 = _make_agent("tech", error=Exception("API timeout"))
 
         tc1 = _make_tool_call("tc_1", "market")
         tc2 = _make_tool_call("tc_2", "tech")
@@ -103,10 +103,10 @@ class TestRunPtcRound:
             results = ptc_client.run_ptc_round("test problem", [m1, m2])
 
         assert len(results) == 1
-        assert results[0].module_name == "market"
+        assert results[0].agent_name == "market"
 
-    def test_empty_module_list(self, ptc_client):
-        """Empty module list: orchestrator returns end_turn immediately, result is []."""
+    def test_empty_agent_list(self, ptc_client):
+        """Empty agent list: orchestrator returns end_turn immediately, result is []."""
         with patch("src.llm.client.litellm.completion", return_value=_make_end_turn_response()):
             results = ptc_client.run_ptc_round("test problem", [])
 
@@ -114,8 +114,8 @@ class TestRunPtcRound:
 
     def test_round2_calls_run_round2(self, ptc_client):
         """With round1_outputs provided, run_round2 is called instead of run_round1."""
-        m1 = _make_module("market", round2_output=_sample_output("market", 2))
-        round1_dicts = [{"module_name": "market", "round": 1, "analysis": {}, "flags": [], "revised": False, "sources": []}]
+        m1 = _make_agent("market", round2_output=_sample_output("market", 2))
+        round1_dicts = [{"agent_name": "market", "round": 1, "analysis": {}, "flags": [], "revised": False, "sources": []}]
 
         tc1 = _make_tool_call("tc_1", "market")
 
@@ -126,7 +126,7 @@ class TestRunPtcRound:
             results = ptc_client.run_ptc_round("test problem", [m1], round1_outputs=round1_dicts)
 
         assert len(results) == 1
-        assert results[0].module_name == "market"
+        assert results[0].agent_name == "market"
         assert results[0].round == 2
         m1.run_round2.assert_called_once_with("test problem", round1_dicts, None)
         m1.run_round1.assert_not_called()

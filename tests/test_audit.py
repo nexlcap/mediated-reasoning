@@ -11,7 +11,7 @@ from src.models.schemas import (
     Conflict,
     ConflictResolution,
     FinalAnalysis,
-    ModuleOutput,
+    AgentOutput,
 )
 
 
@@ -81,7 +81,7 @@ class TestOutputValidatorSourceUrls:
             conflict_resolutions=[
                 ConflictResolution(
                     topic="test conflict",
-                    modules=["market"],
+                    agents=["market"],
                     severity="high",
                     verdict="verdict",
                     updated_recommendation="rec",
@@ -118,12 +118,12 @@ class TestOutputValidatorOrphanedCitations:
         violations = validate(analysis)
         assert any("Orphaned" in v and "99" in v for v in violations)
 
-    def test_citation_in_module_output_flagged(self):
+    def test_citation_in_agent_output_flagged(self):
         analysis = _make_analysis(
             sources=["Source — https://example.com"],
-            module_outputs=[
-                ModuleOutput(
-                    module_name="market",
+            agent_outputs=[
+                AgentOutput(
+                    agent_name="market",
                     round=1,
                     analysis={"summary": "Claim [5]"},
                 )

@@ -7,14 +7,14 @@ from typing import List, Optional
 from dotenv import load_dotenv
 
 from src.llm.client import ClaudeClient, DEFAULT_MODEL
-from src.llm.prompts import ALL_MODULE_NAMES
+from src.llm.prompts import ALL_AGENT_NAMES
 from src.mediator import Mediator
-from src.modules import MODULE_REGISTRY
+from src.agents import AGENT_REGISTRY
 from src.project_memory import ProjectMemory, QAPair
 from src.utils.exporters import export_all
 from src.utils.formatters import format_customer_report, format_detailed_report, format_final_analysis, format_round_summary
 
-DEFAULT_MODULE_NAMES = {cls(None).name for cls in MODULE_REGISTRY}
+DEFAULT_AGENT_NAMES = {cls(None).name for cls in AGENT_REGISTRY}
 
 
 def _git_short_hash() -> str:
@@ -38,7 +38,7 @@ def main():
     )
     parser.add_argument("problem", nargs="?", help="The problem or idea to analyze")
     parser.add_argument("--model", default=DEFAULT_MODEL, help=f"LiteLLM model string for synthesis (default: {DEFAULT_MODEL}). Examples: claude-opus-4-6, gpt-4o, ollama/llama3.3")
-    parser.add_argument("--module-model", default="", help="LiteLLM model string for module analysis calls (default: same as --model). Examples: claude-haiku-4-5-20251001, gpt-4o-mini, ollama/phi4")
+    parser.add_argument("--agent-model", default="", help="LiteLLM model string for agent analysis calls (default: same as --model). Examples: claude-haiku-4-5-20251001, gpt-4o-mini, ollama/phi4")
     parser.add_argument("--context", default="", metavar="TEXT", help="User context and constraints (e.g. 'Bootstrapped SaaS, 2 co-founders, $8k MRR, B2B'). Injected into every LLM call so recommendations are calibrated to your situation.")
     parser.add_argument("--context-file", default="", metavar="PATH", help="Path to a file containing user context (alternative to --context for longer profiles)")
     parser.add_argument("--verbose", action="store_true", help="Show detailed round-by-round output")
@@ -46,7 +46,7 @@ def main():
     parser.add_argument("--customer-report", action="store_true", help="Generate a customer-facing report (no internal details)")
     parser.add_argument("--output", action="store_true", help="Export reports to output/ directory (.md, .json, .html)")
     parser.add_argument("--interactive", action="store_true", help="Enter interactive follow-up mode after analysis")
-    parser.add_argument("--list-modules", action="store_true", help="List fixed fallback modules and exit")
+    parser.add_argument("--list-agents", action="store_true", help="List fixed fallback agents and exit")
     parser.add_argument("--no-search", action="store_true", help="Skip web search pre-pass (disables grounded source fetching via Tavily)")
     parser.add_argument("--deep-research", action="store_true", help="After synthesis, run targeted web search on high/critical conflicts and red flags to produce evidence-based verdicts and updated recommendations")
     parser.add_argument("--project", default="", metavar="PATH", help="Path to project memory directory (brief.md + session logs). Created on first use.")
@@ -56,9 +56,9 @@ def main():
     parser.add_argument("--no-repeat-prompt", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
 
-    if args.list_modules:
-        for name in ALL_MODULE_NAMES:
-            marker = "(default)" if name in DEFAULT_MODULE_NAMES else "(pool)"
+    if args.list_agents:
+        for name in ALL_AGENT_NAMES:
+            marker = "(default)" if name in DEFAULT_AGENT_NAMES else "(pool)"
             print(f"{name}  {marker}")
         sys.exit(0)
 
@@ -94,27 +94,27 @@ def main():
             user_context = brief_ctx
 
     client = ClaudeClient(model=args.model)
-    module_client = ClaudeClient(model=args.module_model, max_tokens=2048) if args.module_model else None
-    mediator = Mediator(client, auto_select=auto_select, search=not args.no_search, deep_research=args.deep_research, module_client=module_client, repeat_prompt=not args.no_repeat_prompt, user_context=user_context or None)
+    agent_client = ClaudeClient(model=args.agent_model, max_tokens=2048) if args.agent_model else None
+    mediator = Mediator(client, auto_select=auto_select, search=not args.no_search, deep_research=args.deep_research, agent_client=agent_client, repeat_prompt=not args.no_repeat_prompt, user_context=user_context or None)
 
     print(f"\nAnalyzing: {problem}\n")
     if user_context:
         print(f"Context: {user_context[:120]}{'…' if len(user_context) > 120 else ''}\n")
-    print("Running adaptive module selection + 3-round mediated reasoning...")
+    print("Running adaptive agent selection + 3-round mediated reasoning...")
     print("This may take a few minutes.\n")
 
-    module_names = [] if auto_select else [m.name for m in mediator.modules]
+    agent_names = [] if auto_select else [m.name for m in mediator.agents]
     with observability.trace(
         "mediated-reasoning",
         input=problem,
-        metadata={"run_label": args.run_label, "model": args.model, "modules": module_names},
+        metadata={"run_label": args.run_label, "model": args.model, "agents": agent_names},
     ):
         result = mediator.analyze(problem)
     result.run_label = args.run_label or _git_short_hash()
 
     if args.verbose:
-        round1 = [o for o in result.module_outputs if o.round == 1]
-        round2 = [o for o in result.module_outputs if o.round == 2]
+        round1 = [o for o in result.agent_outputs if o.round == 1]
+        round2 = [o for o in result.agent_outputs if o.round == 2]
         print(format_round_summary(round1, 1))
         print(format_round_summary(round2, 2))
 

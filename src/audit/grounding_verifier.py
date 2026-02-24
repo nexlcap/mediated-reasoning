@@ -25,7 +25,7 @@ def _collect_cited_sentences(analysis: FinalAnalysis) -> List[Dict]:
     """Return list of {sentence, citation_index} pairs."""
     parts = [analysis.synthesis]
     parts.extend(analysis.recommendations)
-    for mo in analysis.module_outputs:
+    for mo in analysis.agent_outputs:
         if isinstance(mo.analysis, dict):
             parts.append(json.dumps(mo.analysis))
         else:

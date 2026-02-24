@@ -3,7 +3,7 @@ import os
 
 import pytest
 
-from src.models.schemas import Conflict, FinalAnalysis, ModuleOutput
+from src.models.schemas import Conflict, FinalAnalysis, AgentOutput
 from src.utils.exporters import export_all, export_html, export_json, export_markdown, export_to_file, strip_ansi, _slugify
 
 
@@ -11,16 +11,16 @@ from src.utils.exporters import export_all, export_html, export_json, export_mar
 def sample_analysis():
     return FinalAnalysis(
         problem="Should we build a food delivery app?",
-        module_outputs=[
-            ModuleOutput(
-                module_name="market",
+        agent_outputs=[
+            AgentOutput(
+                agent_name="market",
                 round=1,
                 analysis={"summary": "High demand in urban areas"},
                 flags=["green: strong market"],
                 sources=["IBISWorld 2024"],
             ),
-            ModuleOutput(
-                module_name="cost",
+            AgentOutput(
+                agent_name="cost",
                 round=2,
                 analysis={"summary": "High burn rate expected"},
                 flags=["yellow: capital intensive"],
@@ -30,7 +30,7 @@ def sample_analysis():
         ],
         conflicts=[
             Conflict(
-                modules=["market", "cost"],
+                agents=["market", "cost"],
                 topic="burn rate",
                 description="Market sees demand but cost flags high burn",
                 severity="high",
@@ -101,12 +101,12 @@ class TestExportJson:
         assert data["synthesis"] == sample_analysis.synthesis
         assert data["recommendations"] == sample_analysis.recommendations
         assert data["sources"] == sample_analysis.sources
-        assert len(data["module_outputs"]) == 2
+        assert len(data["agent_outputs"]) == 2
 
-    def test_module_outputs_structure(self, sample_analysis):
+    def test_agent_outputs_structure(self, sample_analysis):
         data = json.loads(export_json(sample_analysis))
-        mo = data["module_outputs"][0]
-        assert "module_name" in mo
+        mo = data["agent_outputs"][0]
+        assert "agent_name" in mo
         assert "round" in mo
         assert "analysis" in mo
 

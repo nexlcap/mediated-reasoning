@@ -1,4 +1,4 @@
-from .schemas import ModuleOutput, FinalAnalysis
-from .types import ModuleName, RoundNumber, FlagLevel
+from .schemas import AgentOutput, FinalAnalysis
+from .types import AgentName, RoundNumber, FlagLevel
 
-__all__ = ["ModuleOutput", "FinalAnalysis", "ModuleName", "RoundNumber", "FlagLevel"]
+__all__ = ["AgentOutput", "FinalAnalysis", "AgentName", "RoundNumber", "FlagLevel"]

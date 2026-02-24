@@ -7,17 +7,17 @@ from typing import Dict, List, Optional
 from src import observability
 from src.llm.client import ClaudeClient
 from src.llm.prompts import (
-    MODULE_SYSTEM_PROMPTS,
-    build_dynamic_module_generation_prompt,
+    AGENT_SYSTEM_PROMPTS,
+    build_dynamic_agent_generation_prompt,
     build_followup_prompt,
     build_gap_check_prompt,
     build_resolution_prompt,
     build_synthesis_prompt,
 )
-from src.models.schemas import AdHocModule, Conflict, ConflictResolution, FinalAnalysis, ModuleOutput, RoundTiming, SearchContext, SelectionMetadata
+from src.models.schemas import AdHocAgent, Conflict, ConflictResolution, FinalAnalysis, AgentOutput, RoundTiming, SearchContext, SelectionMetadata
 from src.search import SearchPrePass
-from src.modules import MODULE_REGISTRY
-from src.modules.base_module import create_dynamic_module
+from src.agents import AGENT_REGISTRY
+from src.agents.base_agent import create_dynamic_agent
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -40,7 +40,7 @@ def _extract_url_from_source(source: str) -> str:
 def _remap_citations(text: str, index_map: Dict[int, int], drop_on_miss: bool = False) -> str:
     """Replace [N] citation markers with remapped global indices.
 
-    drop_on_miss=True: citations with no mapping are removed (used for module
+    drop_on_miss=True: citations with no mapping are removed (used for agent
     outputs where a missing mapping means a skipped/invalid source).
     drop_on_miss=False (default): unknown citations are kept as-is (used for
     synthesis which already uses global indices directly).
@@ -71,8 +71,8 @@ def _remap_analysis(analysis: Dict, index_map: Dict[int, int], drop_on_miss: boo
 
 
 def _consolidate_sources(
-    all_outputs: List[ModuleOutput], synthesis_result: Dict
-) -> tuple[List[str], List[ModuleOutput], Dict]:
+    all_outputs: List[AgentOutput], synthesis_result: Dict
+) -> tuple[List[str], List[AgentOutput], Dict]:
     """Build a global deduplicated source list and remap all inline citations.
 
     Returns (global_sources, remapped_outputs, remapped_synthesis_fields).
@@ -130,13 +130,13 @@ def _consolidate_sources(
     for local_idx, raw_source in enumerate(synthesis_result.get("sources", []), 1):
         synthesis_map[local_idx] = _add_source(raw_source)
 
-    # 2. Remap inline citations in module outputs
+    # 2. Remap inline citations in agent outputs
     # drop_on_miss=True: citations to URL-less (skipped) or out-of-range sources are removed
     remapped_outputs = []
     for output, index_map in zip(all_outputs, output_maps):
         remapped_outputs.append(
-            ModuleOutput(
-                module_name=output.module_name,
+            AgentOutput(
+                agent_name=output.agent_name,
                 round=output.round,
                 analysis=_remap_analysis(output.analysis, index_map, drop_on_miss=True),
                 flags=[_remap_citations(f, index_map, drop_on_miss=True) for f in output.flags],
@@ -207,7 +207,7 @@ def _consolidate_resolution_sources(
                 index_map[local_idx] = global_idx
         remapped.append(ConflictResolution(
             topic=res.topic,
-            modules=res.modules,
+            agents=res.agents,
             severity=res.severity,
             verdict=_remap_citations(res.verdict, index_map, drop_on_miss=True),
             updated_recommendation=_remap_citations(res.updated_recommendation, index_map, drop_on_miss=True),
@@ -225,14 +225,14 @@ class Mediator:
         auto_select: bool = False,
         search: bool = True,
         deep_research: bool = False,
-        module_client: Optional[ClaudeClient] = None,
+        agent_client: Optional[ClaudeClient] = None,
         repeat_prompt: bool = True,
         tavily_api_key: Optional[str] = None,
         on_progress=None,
         user_context: Optional[str] = None,
     ):
         self.client = client                              # synthesis + auto-select + gap-check
-        self.module_client = module_client or client     # module analysis + search queries
+        self.agent_client = agent_client or client     # agent analysis + search queries
         self.weights = weights or {}
         self.auto_select = auto_select
         self.search = search
@@ -245,7 +245,7 @@ class Mediator:
         self.selection_metadata: Optional[SelectionMetadata] = None
 
         if not auto_select:
-            self._init_default_modules()
+            self._init_default_agents()
 
     def _progress(self, msg: str) -> None:
         if self._on_progress:
@@ -260,28 +260,28 @@ class Mediator:
             f"Problem to analyze:\n{problem}"
         )
 
-    def _init_default_modules(self):
-        all_modules = [cls(self.module_client) for cls in MODULE_REGISTRY]
-        self.deactivated_modules = [
-            m.name for m in all_modules if self.weights.get(m.name, 1) == 0
+    def _init_default_agents(self):
+        all_agents = [cls(self.agent_client) for cls in AGENT_REGISTRY]
+        self.deactivated_agents = [
+            m.name for m in all_agents if self.weights.get(m.name, 1) == 0
         ]
-        self.modules = [
-            m for m in all_modules if m.name not in self.deactivated_modules
+        self.agents = [
+            m for m in all_agents if m.name not in self.deactivated_agents
         ]
 
-    def _select_modules(self, problem: str) -> None:
+    def _select_agents(self, problem: str) -> None:
         """Run the two-step LLM pre-pass: dynamic panel generation + gap check."""
         try:
             # Step 1: Generate specialist panel from scratch
-            system, user = build_dynamic_module_generation_prompt(problem)
+            system, user = build_dynamic_agent_generation_prompt(problem)
             gen_result = self.client.analyze(system, user, repeat_prompt=self.repeat_prompt)
-            raw_modules = gen_result.get("modules", [])
+            raw_agents = gen_result.get("agents", [])
             selection_reasoning = gen_result.get("reasoning", "")
 
             # Validate structure (no fixed-pool check)
             generated = []
             seen = set()
-            for item in raw_modules:
+            for item in raw_agents:
                 if not isinstance(item, dict):
                     continue
                 name = item.get("name", "").strip()
@@ -292,17 +292,17 @@ class Mediator:
                 seen.add(name)
 
             if not generated:
-                logger.warning("Dynamic generation returned no valid modules, falling back to defaults")
-                self._init_default_modules()
+                logger.warning("Dynamic generation returned no valid agents, falling back to defaults")
+                self._init_default_agents()
                 return
 
             # Step 2: Gap check against generated panel
             system, user = build_gap_check_prompt(problem, generated)
             gap_result = self.client.analyze(system, user, repeat_prompt=self.repeat_prompt)
             gap_reasoning = gap_result.get("reasoning", "")
-            raw_ad_hoc = gap_result.get("ad_hoc_modules", [])
+            raw_ad_hoc = gap_result.get("ad_hoc_agents", [])
 
-            ad_hoc_modules: List[AdHocModule] = []
+            ad_hoc_agents: List[AdHocAgent] = []
             for item in raw_ad_hoc[:3]:
                 if not isinstance(item, dict):
                     continue
@@ -310,46 +310,46 @@ class Mediator:
                 prompt = item.get("system_prompt", "")
                 if not name or not prompt or name in seen:
                     continue
-                ad_hoc_modules.append(AdHocModule(name=name, system_prompt=prompt))
+                ad_hoc_agents.append(AdHocAgent(name=name, system_prompt=prompt))
                 seen.add(name)
 
-            # Instantiate all via create_dynamic_module (no registry lookup for auto-select)
-            modules = [
-                create_dynamic_module(m["name"], m["system_prompt"], self.module_client)
+            # Instantiate all via create_dynamic_agent (no registry lookup for auto-select)
+            agents = [
+                create_dynamic_agent(m["name"], m["system_prompt"], self.agent_client)
                 for m in generated
             ]
-            for adhoc in ad_hoc_modules:
-                modules.append(create_dynamic_module(adhoc.name, adhoc.system_prompt, self.module_client))
+            for adhoc in ad_hoc_agents:
+                agents.append(create_dynamic_agent(adhoc.name, adhoc.system_prompt, self.agent_client))
 
             # Weight=0 deactivation (unchanged)
-            self.deactivated_modules = [m.name for m in modules if self.weights.get(m.name, 1) == 0]
-            self.modules = [m for m in modules if m.name not in self.deactivated_modules]
+            self.deactivated_agents = [m.name for m in agents if self.weights.get(m.name, 1) == 0]
+            self.agents = [m for m in agents if m.name not in self.deactivated_agents]
 
             self.selection_metadata = SelectionMetadata(
                 auto_selected=True,
-                selected_modules=[m.name for m in self.modules],
+                selected_agents=[m.name for m in self.agents],
                 selection_reasoning=selection_reasoning,
                 gap_check_reasoning=gap_reasoning,
-                ad_hoc_modules=ad_hoc_modules,
+                ad_hoc_agents=ad_hoc_agents,
             )
 
         except Exception as e:
             logger.error("Auto-select failed (%s), falling back to defaults", e)
-            self._init_default_modules()
+            self._init_default_agents()
 
     def _run_deep_research(
         self,
         problem: str,
         conflicts: List[Conflict],
         priority_flags: List[str],
-        module_outputs: List[ModuleOutput],
+        agent_outputs: List[AgentOutput],
         searcher,
     ) -> List[ConflictResolution]:
         """Run targeted research for high/critical conflicts and red flags."""
 
-        def _get_position(module_name: str) -> str:
-            r2 = next((o for o in module_outputs if o.module_name == module_name and o.round == 2), None)
-            r1 = next((o for o in module_outputs if o.module_name == module_name and o.round == 1), None)
+        def _get_position(agent_name: str) -> str:
+            r2 = next((o for o in agent_outputs if o.agent_name == agent_name and o.round == 2), None)
+            r1 = next((o for o in agent_outputs if o.agent_name == agent_name and o.round == 1), None)
             output = r2 or r1
             if not output:
                 return ""
@@ -366,7 +366,7 @@ class Mediator:
                 items.append({
                     "topic": conflict.topic,
                     "description": conflict.description,
-                    "modules": conflict.modules,
+                    "agents": conflict.agents,
                     "severity": conflict.severity,
                 })
                 processed_topics.add(conflict.topic.lower())
@@ -381,7 +381,7 @@ class Mediator:
             items.append({
                 "topic": flag_text[:80],
                 "description": flag_text,
-                "modules": [],
+                "agents": [],
                 "severity": "red",
             })
 
@@ -394,22 +394,22 @@ class Mediator:
         def resolve_item(item: Dict) -> Optional[ConflictResolution]:
             topic = item["topic"]
             description = item["description"]
-            modules = item["modules"]
+            agents = item["agents"]
             severity = item["severity"]
 
             search_context = None
             if searcher:
                 search_context = searcher.run_for_conflict(problem, topic, description)
 
-            module_positions = {m: _get_position(m) for m in modules}
+            agent_positions = {m: _get_position(m) for m in agents}
             system, user = build_resolution_prompt(
-                problem, topic, description, modules, module_positions, search_context
+                problem, topic, description, agents, agent_positions, search_context
             )
             try:
                 result = self.client.analyze(system, user)
                 return ConflictResolution(
                     topic=topic,
-                    modules=modules,
+                    agents=agents,
                     severity=severity,
                     verdict=result.get("verdict", ""),
                     updated_recommendation=result.get("updated_recommendation", ""),
@@ -434,9 +434,9 @@ class Mediator:
 
     def _merge_token_usage(self) -> "TokenUsage":
         from src.models.schemas import TokenUsage
-        if self.module_client is self.client:
+        if self.agent_client is self.client:
             return self.client.token_usage()
-        m = self.module_client._raw_usage()
+        m = self.agent_client._raw_usage()
         s = self.client._raw_usage()
         ai = m["analyze_input"] + s["analyze_input"]
         ao = m["analyze_output"] + s["analyze_output"]
@@ -447,8 +447,8 @@ class Mediator:
         return TokenUsage(
             analyze_input=ai,
             analyze_output=ao,
-            module_analyze_input=m["analyze_input"],
-            module_analyze_output=m["analyze_output"],
+            agent_analyze_input=m["analyze_input"],
+            agent_analyze_output=m["analyze_output"],
             synthesis_analyze_input=s["analyze_input"],
             synthesis_analyze_output=s["analyze_output"],
             chat_input=ci,
@@ -463,54 +463,54 @@ class Mediator:
         aug = self._augmented_problem(problem)
 
         if self.auto_select:
-            self._progress("Selecting relevant modules…")
+            self._progress("Selecting relevant agents…")
             with observability.span("auto-select"):
-                self._select_modules(aug)
-            self._progress(f"Modules selected: {', '.join(m.name for m in self.modules)}")
+                self._select_agents(aug)
+            self._progress(f"Agents selected: {', '.join(m.name for m in self.agents)}")
         else:
-            pass  # modules already initialized in __init__
+            pass  # agents already initialized in __init__
 
-        # Create searcher once; uses module_client for query generation
+        # Create searcher once; uses agent_client for query generation
         if self.search:
             backend = "Tavily" if self.tavily_api_key else "DuckDuckGo"
             self._progress(f"Running web search pre-pass ({backend})…")
-        searcher = SearchPrePass(self.module_client, tavily_api_key=self.tavily_api_key) if self.search else None
+        searcher = SearchPrePass(self.agent_client, tavily_api_key=self.tavily_api_key) if self.search else None
 
         t_start = time.perf_counter()
 
-        # Round 1: Independent analysis (all modules dispatched in parallel via PTC)
+        # Round 1: Independent analysis (all agents dispatched in parallel via PTC)
         logger.info("Starting Round 1: Independent Analysis")
-        self._progress(f"Round 1 — independent analysis ({len(self.modules)} modules in parallel)…")
-        round1_outputs: List[ModuleOutput] = []
+        self._progress(f"Round 1 — independent analysis ({len(self.agents)} agents in parallel)…")
+        round1_outputs: List[AgentOutput] = []
         with observability.span("round-1"):
             try:
                 round1_outputs = self.client.run_ptc_round(
-                    aug, self.modules, searcher=searcher
+                    aug, self.agents, searcher=searcher
                 )
             except Exception as e:
                 logger.error("Round 1 failed: %s", e)
-        module_order = {m.name: i for i, m in enumerate(self.modules)}
-        round1_outputs.sort(key=lambda o: module_order[o.module_name])
-        self._progress(f"Round 1 complete ({len(round1_outputs)}/{len(self.modules)} modules)")
+        agent_order = {m.name: i for i, m in enumerate(self.agents)}
+        round1_outputs.sort(key=lambda o: agent_order[o.agent_name])
+        self._progress(f"Round 1 complete ({len(round1_outputs)}/{len(self.agents)} agents)")
 
         t1 = time.perf_counter()
 
-        # Round 2: Informed revision (all eligible modules dispatched in parallel via PTC)
+        # Round 2: Informed revision (all eligible agents dispatched in parallel via PTC)
         logger.info("Starting Round 2: Informed Revision")
-        self._progress("Round 2 — cross-module revision…")
+        self._progress("Round 2 — cross-agent revision…")
         round1_dicts = [o.model_dump() for o in round1_outputs]
-        round1_names = {o.module_name for o in round1_outputs}
-        eligible_modules = [m for m in self.modules if m.name in round1_names]
-        round2_outputs: List[ModuleOutput] = []
+        round1_names = {o.agent_name for o in round1_outputs}
+        eligible_agents = [m for m in self.agents if m.name in round1_names]
+        round2_outputs: List[AgentOutput] = []
         with observability.span("round-2"):
-            if eligible_modules:
+            if eligible_agents:
                 try:
                     round2_outputs = self.client.run_ptc_round(
-                        aug, eligible_modules, round1_outputs=round1_dicts, searcher=searcher
+                        aug, eligible_agents, round1_outputs=round1_dicts, searcher=searcher
                     )
                 except Exception as e:
                     logger.error("Round 2 failed: %s", e)
-        round2_outputs.sort(key=lambda o: module_order[o.module_name])
+        round2_outputs.sort(key=lambda o: agent_order[o.agent_name])
         self._progress("Round 2 complete")
 
         t2 = time.perf_counter()
@@ -526,7 +526,7 @@ class Mediator:
         synthesis_result = {}
         with observability.span("synthesis"):
             if all_outputs:
-                # Pre-consolidate module sources so synthesis can cite real [N] numbers
+                # Pre-consolidate agent sources so synthesis can cite real [N] numbers
                 pre_global_sources, pre_remapped_outputs, _ = _consolidate_sources(
                     all_outputs, {}
                 )
@@ -534,7 +534,7 @@ class Mediator:
                 system, user = build_synthesis_prompt(
                     aug, all_output_dicts,
                     weights=self.weights,
-                    deactivated_modules=self.deactivated_modules,
+                    deactivated_agents=self.deactivated_agents,
                     global_sources=pre_global_sources,
                 )
                 try:
@@ -542,7 +542,7 @@ class Mediator:
                 except Exception as e:
                     logger.error("Synthesis failed: %s", e)
             else:
-                logger.error("All modules failed — no data to synthesize")
+                logger.error("All agents failed — no data to synthesize")
 
         t3 = time.perf_counter()
         self._progress("Synthesis complete")
@@ -575,7 +575,7 @@ class Mediator:
             problem=problem,
             user_context=self.user_context,
             generated_at=datetime.now(timezone.utc).isoformat(),
-            module_outputs=remapped_outputs,
+            agent_outputs=remapped_outputs,
             conflicts=conflicts,
             synthesis=remapped_synthesis["synthesis"],
             recommendations=remapped_synthesis["recommendations"],
@@ -587,7 +587,7 @@ class Mediator:
             search_enabled=self.search,
             conflict_resolutions=conflict_resolutions,
             deep_research_enabled=self.deep_research,
-            module_model=self.module_client.model if self.module_client is not self.client else "",
+            agent_model=self.agent_client.model if self.agent_client is not self.client else "",
             token_usage=token_usage,
             timing=RoundTiming(
                 round1_s=round(t1 - t_start, 2),
@@ -595,8 +595,8 @@ class Mediator:
                 round3_s=round(t3 - t2, 2),
                 total_s=round(t3 - t_start, 2),
             ),
-            modules_attempted=len(self.modules),
-            modules_completed=len(round1_outputs),
+            agents_attempted=len(self.agents),
+            agents_completed=len(round1_outputs),
             sources_claimed=sources_claimed,
         )
 

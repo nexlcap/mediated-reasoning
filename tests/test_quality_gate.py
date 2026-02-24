@@ -22,8 +22,8 @@ def _make(
     *,
     sources_survived: int = 20,
     sources_claimed: int = 20,
-    modules_attempted: int = 3,
-    modules_completed: int = 3,
+    agents_attempted: int = 3,
+    agents_completed: int = 3,
     flags: list[str] | None = None,
     search_enabled: bool = True,
 ) -> FinalAnalysis:
@@ -31,8 +31,8 @@ def _make(
         problem="test",
         sources=_sources(sources_survived),
         sources_claimed=sources_claimed,
-        modules_attempted=modules_attempted,
-        modules_completed=modules_completed,
+        agents_attempted=agents_attempted,
+        agents_completed=agents_completed,
         priority_flags=flags or [],
         search_enabled=search_enabled,
     )
@@ -62,33 +62,33 @@ class TestTierBoundaries:
         assert q.score == pytest.approx(0.5)
 
     def test_score_below_05_is_poor(self):
-        # One module failed (-0.3) + survival <50% (-0.3) + <5 sources (-0.2) = -0.8 → 0.2 → poor
+        # One agent failed (-0.3) + survival <50% (-0.3) + <5 sources (-0.2) = -0.8 → 0.2 → poor
         q = evaluate(_make(
             sources_survived=2,
             sources_claimed=10,
-            modules_attempted=3,
-            modules_completed=2,
+            agents_attempted=3,
+            agents_completed=2,
         ))
         assert q.tier == "poor"
         assert q.score == pytest.approx(0.2)
 
 
 # ---------------------------------------------------------------------------
-# Module failures
+# Agent failures
 # ---------------------------------------------------------------------------
 
-class TestModuleFailures:
-    def test_one_failed_module_deducts_03(self):
-        q = evaluate(_make(modules_attempted=3, modules_completed=2))
+class TestAgentFailures:
+    def test_one_failed_agent_deducts_03(self):
+        q = evaluate(_make(agents_attempted=3, agents_completed=2))
         assert q.score == pytest.approx(0.7)
         assert any("failed" in w for w in q.warnings)
 
-    def test_two_failed_modules_deducts_06(self):
-        q = evaluate(_make(modules_attempted=3, modules_completed=1))
+    def test_two_failed_agents_deducts_06(self):
+        q = evaluate(_make(agents_attempted=3, agents_completed=1))
         assert q.score == pytest.approx(0.4)
 
     def test_no_failures_no_penalty(self):
-        q = evaluate(_make(modules_attempted=5, modules_completed=5))
+        q = evaluate(_make(agents_attempted=5, agents_completed=5))
         assert q.score == pytest.approx(1.0)
 
 
@@ -194,8 +194,8 @@ class TestScoreClamping:
         q = evaluate(_make(
             sources_survived=1,
             sources_claimed=10,
-            modules_attempted=5,
-            modules_completed=2,
+            agents_attempted=5,
+            agents_completed=2,
             flags=flags,
         ))
         assert q.score >= 0.0
@@ -225,7 +225,7 @@ class TestRunQualitySchema:
     def test_tier_values_are_valid(self):
         for kwargs in [
             {},
-            {"modules_completed": 1},
+            {"agents_completed": 1},
             {"sources_survived": 1, "sources_claimed": 10},
         ]:
             q = evaluate(_make(**kwargs))

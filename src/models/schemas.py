@@ -19,21 +19,21 @@ class SearchContext(BaseModel):
         return "\n".join(lines)
 
 
-class AdHocModule(BaseModel):
+class AdHocAgent(BaseModel):
     name: str
     system_prompt: str
 
 
 class SelectionMetadata(BaseModel):
     auto_selected: bool = False
-    selected_modules: List[str] = Field(default_factory=list)
+    selected_agents: List[str] = Field(default_factory=list)
     selection_reasoning: str = ""
     gap_check_reasoning: str = ""
-    ad_hoc_modules: List[AdHocModule] = Field(default_factory=list)
+    ad_hoc_agents: List[AdHocAgent] = Field(default_factory=list)
 
 
-class ModuleOutput(BaseModel):
-    module_name: str
+class AgentOutput(BaseModel):
+    agent_name: str
     round: int
     analysis: Dict = Field(default_factory=dict)
     flags: List[str] = Field(default_factory=list)
@@ -42,12 +42,12 @@ class ModuleOutput(BaseModel):
 
 
 class ConflictArbitration(BaseModel):
-    authority: str   # module whose position is authoritative for this topic
+    authority: str   # agent whose position is authoritative for this topic
     reasoning: str   # one-sentence justification
 
 
 class Conflict(BaseModel):
-    modules: List[str]
+    agents: List[str]
     topic: str
     description: str
     severity: Literal["critical", "high", "medium", "low"]
@@ -56,7 +56,7 @@ class Conflict(BaseModel):
 
 class ConflictResolution(BaseModel):
     topic: str                      # conflict topic or red flag text
-    modules: List[str]              # modules involved; empty for standalone red flags
+    agents: List[str]              # agents involved; empty for standalone red flags
     severity: str                   # "high"/"critical" for conflicts, "red" for flags
     verdict: str                    # evidence-based finding
     updated_recommendation: str     # concrete action given the verdict
@@ -79,7 +79,7 @@ class GroundingResult(BaseModel):
 
 
 class ConsistencyResult(BaseModel):
-    module: str
+    agent: str
     ok: bool
     issues: List[str] = Field(default_factory=list)
 
@@ -99,10 +99,10 @@ class AuditSummary(BaseModel):
 
 
 class TokenUsage(BaseModel):
-    analyze_input: int = 0             # total analyze() tokens (module + synthesis)
+    analyze_input: int = 0             # total analyze() tokens (agent + synthesis)
     analyze_output: int = 0
-    module_analyze_input: int = 0      # module calls only (Haiku when tiered)
-    module_analyze_output: int = 0
+    agent_analyze_input: int = 0      # agent calls only (Haiku when tiered)
+    agent_analyze_output: int = 0
     synthesis_analyze_input: int = 0   # synthesis + auto-select + gap-check (Sonnet)
     synthesis_analyze_output: int = 0
     chat_input: int = 0
@@ -130,7 +130,7 @@ class FinalAnalysis(BaseModel):
     problem: str
     user_context: str = ""          # user-supplied context/constraints profile (empty = none provided)
     generated_at: str = ""
-    module_outputs: List[ModuleOutput] = Field(default_factory=list)
+    agent_outputs: List[AgentOutput] = Field(default_factory=list)
     conflicts: List[Conflict] = Field(default_factory=list)
     synthesis: str = ""
     recommendations: List[str] = Field(default_factory=list)
@@ -146,9 +146,9 @@ class FinalAnalysis(BaseModel):
     audit: Optional[AuditSummary] = None
     quality: Optional[RunQuality] = None
     run_label: str = ""
-    module_model: str = ""             # model used for module calls (empty = same as synthesis)
+    agent_model: str = ""             # model used for agent calls (empty = same as synthesis)
     token_usage: Optional[TokenUsage] = None
     timing: Optional[RoundTiming] = None
-    modules_attempted: int = 0
-    modules_completed: int = 0
+    agents_attempted: int = 0
+    agents_completed: int = 0
     sources_claimed: int = 0

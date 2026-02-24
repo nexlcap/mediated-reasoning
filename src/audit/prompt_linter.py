@@ -12,8 +12,8 @@ from typing import List
 def lint() -> List[str]:
     """Return a list of violation strings.  Empty list = all checks passed."""
     from src.llm.prompts import (
-        _module_json_instruction,
-        build_dynamic_module_generation_prompt,
+        _agent_json_instruction,
+        build_dynamic_agent_generation_prompt,
         build_gap_check_prompt,
         build_synthesis_prompt,
         build_resolution_prompt,
@@ -26,30 +26,30 @@ def lint() -> List[str]:
         if not condition:
             violations.append(message)
 
-    # --- Layer 1a: _module_json_instruction ---
+    # --- Layer 1a: _agent_json_instruction ---
 
-    no_search = _module_json_instruction(has_search_context=False)
+    no_search = _agent_json_instruction(has_search_context=False)
     check(
         "MUST BE EMPTY" in no_search,
-        "_module_json_instruction(False) missing 'MUST BE EMPTY'",
+        "_agent_json_instruction(False) missing 'MUST BE EMPTY'",
     )
     check(
         "Do not fabricate" in no_search or "do not fabricate" in no_search,
-        "_module_json_instruction(False) missing fabrication prohibition",
+        "_agent_json_instruction(False) missing fabrication prohibition",
     )
     check(
         "Do not use inline [N]" in no_search or "Do not use [N]" in no_search or "citation markers" in no_search,
-        "_module_json_instruction(False) missing [N] prohibition",
+        "_agent_json_instruction(False) missing [N] prohibition",
     )
 
-    with_search = _module_json_instruction(has_search_context=True)
+    with_search = _agent_json_instruction(has_search_context=True)
     check(
         "ONLY" in with_search or "verbatim" in with_search,
-        "_module_json_instruction(True) missing verbatim-copy constraint",
+        "_agent_json_instruction(True) missing verbatim-copy constraint",
     )
     check(
         "MUST have an inline [N]" in with_search or "MUST be cited" in with_search or "MUST have" in with_search,
-        "_module_json_instruction(True) missing mandatory citation rule",
+        "_agent_json_instruction(True) missing mandatory citation rule",
     )
 
     # --- Layer 1b: build_synthesis_prompt ---
@@ -100,18 +100,18 @@ def lint() -> List[str]:
         "build_resolution_prompt (no search) missing 'MUST BE EMPTY' constraint",
     )
 
-    # --- Layer 1e: build_dynamic_module_generation_prompt ---
-    _, gen_user = build_dynamic_module_generation_prompt("Should I pivot to B2B?")
-    check('"modules"' in gen_user, "build_dynamic_module_generation_prompt: missing 'modules' field")
-    check('"reasoning"' in gen_user, "build_dynamic_module_generation_prompt: missing 'reasoning' field")
-    check("snake_case" in gen_user, "build_dynamic_module_generation_prompt: missing snake_case name guidance")
-    check("Respond with ONLY valid JSON" in gen_user, "build_dynamic_module_generation_prompt: missing JSON constraint for generated system prompts")
-    check("3" in gen_user and "7" in gen_user, "build_dynamic_module_generation_prompt: missing 3-7 count guidance")
+    # --- Layer 1e: build_dynamic_agent_generation_prompt ---
+    _, gen_user = build_dynamic_agent_generation_prompt("Should I pivot to B2B?")
+    check('"agents"' in gen_user, "build_dynamic_agent_generation_prompt: missing 'agents' field")
+    check('"reasoning"' in gen_user, "build_dynamic_agent_generation_prompt: missing 'reasoning' field")
+    check("snake_case" in gen_user, "build_dynamic_agent_generation_prompt: missing snake_case name guidance")
+    check("Respond with ONLY valid JSON" in gen_user, "build_dynamic_agent_generation_prompt: missing JSON constraint for generated system prompts")
+    check("3" in gen_user and "7" in gen_user, "build_dynamic_agent_generation_prompt: missing 3-7 count guidance")
 
-    sample_modules = [{"name": "enterprise_sales", "system_prompt": "You are an enterprise sales expert. Respond with ONLY valid JSON, no other text."}]
-    _, gap_user = build_gap_check_prompt("B2B pivot", sample_modules)
-    check("enterprise_sales" in gap_user, "build_gap_check_prompt: does not reference generated module names")
-    check("ad_hoc_modules" in gap_user, "build_gap_check_prompt: missing 'ad_hoc_modules' field")
+    sample_agents = [{"name": "enterprise_sales", "system_prompt": "You are an enterprise sales expert. Respond with ONLY valid JSON, no other text."}]
+    _, gap_user = build_gap_check_prompt("B2B pivot", sample_agents)
+    check("enterprise_sales" in gap_user, "build_gap_check_prompt: does not reference generated agent names")
+    check("ad_hoc_agents" in gap_user, "build_gap_check_prompt: missing 'ad_hoc_agents' field")
     check("gaps_identified" in gap_user, "build_gap_check_prompt: missing 'gaps_identified' field")
 
     # --- Layer 1d: build_followup_prompt ---

@@ -31,8 +31,8 @@ def _make_report(
     round1_s=12.0,
     round2_s=48.0,
     round3_s=8.0,
-    modules_attempted=3,
-    modules_completed=3,
+    agents_attempted=3,
+    agents_completed=3,
     sources_claimed=20,
     sources_survived=15,
     flags=None,
@@ -42,7 +42,7 @@ def _make_report(
     if flags is None:
         flags = ["red: risk A", "yellow: caution B", "green: ok"]
     if conflicts is None:
-        conflicts = [{"modules": ["market", "tech"], "topic": "t", "description": "d", "severity": "high"}]
+        conflicts = [{"agents": ["market", "tech"], "topic": "t", "description": "d", "severity": "high"}]
     total_s = round1_s + round2_s + round3_s
     return {
         "problem": problem,
@@ -63,8 +63,8 @@ def _make_report(
             "round3_s": round3_s,
             "total_s": total_s,
         },
-        "modules_attempted": modules_attempted,
-        "modules_completed": modules_completed,
+        "agents_attempted": agents_attempted,
+        "agents_completed": agents_completed,
         "sources_claimed": sources_claimed,
         "sources": [f"source {i}" for i in range(sources_survived)],
         "priority_flags": flags,
@@ -184,7 +184,7 @@ class TestFormatters:
         assert "←" in d  # large timing improvement gets marker
 
     def test_fmt_delta_equal(self):
-        d = _fmt_delta("modules_attempted", 3.0, 3.0)
+        d = _fmt_delta("agents_attempted", 3.0, 3.0)
         assert d == "="
 
     def test_fmt_delta_new(self):

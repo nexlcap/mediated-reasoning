@@ -16,7 +16,7 @@ Three rounds of structured reasoning:
 2. **Round 2 — Informed Revision:** Specialists see each other's outputs and revise their positions with full cross-domain context.
 3. **Round 3 — Synthesis:** Conflicts are identified and arbitrated, critical issues are flagged (red/yellow/green), and a final recommendation is generated.
 
-Modules run in parallel within each round via programmatic tool calling (PTC). LiteLLM is used as the LLM backend, supporting any provider out of the box — Anthropic (default), OpenAI, Google Gemini, Groq, or fully local models via Ollama (no API key required). A web search pre-pass grounds each module's analysis in real, cited sources (DuckDuckGo by default — no API key required; Tavily opt-in for higher quality). A structural quality gate scores every run on source survival, module completion, and critical flag density, and displays the result (`good` / `degraded` / `poor`) at the end of every output.
+Agents run in parallel within each round via programmatic tool calling (PTC). LiteLLM is used as the LLM backend, supporting any provider out of the box — Anthropic (default), OpenAI, Google Gemini, Groq, or fully local models via Ollama (no API key required). A web search pre-pass grounds each agent's analysis in real, cited sources (DuckDuckGo by default — no API key required; Tavily opt-in for higher quality). A structural quality gate scores every run on source survival, agent completion, and critical flag density, and displays the result (`good` / `degraded` / `poor`) at the end of every output.
 
 ## Setup
 
@@ -40,7 +40,7 @@ cp .env.example .env
 # Basic analysis
 python -m src.main "Should we build a food delivery app?"
 
-# Adaptive module selection — LLM picks relevant modules from a pool of 12
+# Adaptive agent selection — LLM picks relevant agents from a pool of 12
 python -m src.main "your problem" --auto-select
 
 # Export all formats (md, json, html) to output/ directory
@@ -58,21 +58,21 @@ python -m src.main "your problem" --deep-research
 # Interactive follow-up questions after analysis
 python -m src.main "your problem" --interactive
 
-# Adjust module weights (0 deactivates a module)
+# Adjust agent weights (0 deactivates an agent)
 python -m src.main "your problem" --weight legal=2 --weight cost=0
 
-# Use a separate model for module calls (cheaper/faster)
-python -m src.main "your problem" --module-model claude-haiku-4-5-20251001
+# Use a separate model for agent calls (cheaper/faster)
+python -m src.main "your problem" --agent-model claude-haiku-4-5-20251001
 
 # Use any LiteLLM-supported provider (OpenAI, Gemini, Groq, local Ollama, etc.)
-python -m src.main "your problem" --model gpt-4o --module-model gpt-4o-mini
+python -m src.main "your problem" --model gpt-4o --agent-model gpt-4o-mini
 python -m src.main "your problem" --model ollama/llama3.3  # fully local, no API key
 
 # Tag run for metrics comparison
 python -m src.main "your problem" --output --run-label baseline
 
-# List available modules
-python -m src.main --list-modules
+# List available agents
+python -m src.main --list-agents
 ```
 
 ### Output Directory Structure
@@ -102,7 +102,7 @@ Every run computes a quality score (0–1) from structural metrics — no LLM ca
 
 | Signal | Condition | Penalty |
 |--------|-----------|---------|
-| Module failures | per failed module | −0.30 |
+| Agent failures | per failed agent | −0.30 |
 | Source survival | <50% of claimed sources had real URLs | −0.30 |
 | Source survival | <70% | −0.10 |
 | Grounding depth | <5 sources survived | −0.20 |
@@ -134,7 +134,7 @@ LANGFUSE_PUBLIC_KEY=pk-lf-...
 LANGFUSE_SECRET_KEY=sk-lf-...
 ```
 
-When keys are set, every run creates a trace in your Langfuse dashboard named `fusen` with nested spans for `auto-select`, `round-1`, `round-2`, `synthesis`, and `deep-research`. Module generations are auto-captured by OpenTelemetry instrumentation. Without keys the system runs unchanged.
+When keys are set, every run creates a trace in your Langfuse dashboard named `fusen` with nested spans for `auto-select`, `round-1`, `round-2`, `synthesis`, and `deep-research`. Agent generations are auto-captured by OpenTelemetry instrumentation. Without keys the system runs unchanged.
 
 ## Sample Reports
 

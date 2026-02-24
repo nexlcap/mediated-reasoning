@@ -34,8 +34,6 @@ MODELS = [
     "xai/grok-2",
     "xai/grok-3",
 ]
-MODULE_MODEL_CHOICES = ["(same as main model)"] + MODELS
-
 
 # ── CSS ───────────────────────────────────────────────────────────────────────
 _CSS = """
@@ -223,8 +221,7 @@ function() {
         "brief-expand":     "Open in a larger editing window",
         "save-session":     "Append this session to the log and ask the AI to rewrite the project brief",
         "model-dd":         "Main LLM used for synthesis and the final report",
-        "module-model-dd":  "Separate (typically cheaper) model for specialist rounds — leave as (same) for best quality",
-"auto-cb":          "Let the AI choose the most relevant specialist lenses for your specific problem",
+        "auto-cb":          "Let the AI choose the most relevant specialist lenses for your specific problem",
         "search-cb":        "Disable web search — runs faster but recommendations won't cite live sources",
         "deep-cb":          "Run an extra conflict-resolution pass to reconcile disagreements between specialists",
         "repeat-cb":        "Re-send the original question to synthesis — measurably improves quality (arxiv 2512.14982)",
@@ -265,7 +262,7 @@ def _parse_weights(weights_str: str) -> dict:
         if not part:
             continue
         if "=" not in part:
-            raise ValueError(f"Invalid weight '{part}' — expected format: module=number")
+            raise ValueError(f"Invalid weight '{part}' — expected format: agent=number")
         name, val = part.split("=", 1)
         weights[name.strip()] = float(val.strip())
     return weights
@@ -392,7 +389,7 @@ def save_project_session(
 
 # ── Analysis ──────────────────────────────────────────────────────────────────
 def run_analysis(
-    problem, model, module_model_choice, api_key,
+    problem, model, api_key,
     auto_select, no_search, deep_research,
     repeat_prompt, tavily_key, user_context,
     project_memory, brief_text,
@@ -421,19 +418,18 @@ def run_analysis(
         brief_ctx = f"Project brief:\n{brief_text.strip()}"
         effective_context = brief_ctx + ("\n\n" + effective_context if effective_context else "")
 
-    key          = api_key.strip()
-    module_model = None if module_model_choice == "(same as main model)" else module_model_choice
-    status_q     = queue.Queue()
+    key      = api_key.strip()
+    status_q = queue.Queue()
 
     def on_progress(msg):
         status_q.put(("status", msg))
 
-    client        = ClaudeClient(model=model, api_key=key)
-    module_client = ClaudeClient(model=module_model, max_tokens=2048, api_key=key) if module_model else None
+    client       = ClaudeClient(model=model, api_key=key)
+    agent_client = None
     mediator      = Mediator(
         client, weights={},
         auto_select=auto_select, search=not no_search,
-        deep_research=deep_research, module_client=module_client,
+        deep_research=deep_research, agent_client=agent_client,
         repeat_prompt=repeat_prompt,
         tavily_api_key=(tavily_key or "").strip() or None,
         on_progress=on_progress,
@@ -567,11 +563,7 @@ with gr.Blocks(title="Fusen") as demo:
             model_dd = gr.Dropdown(
                 choices=MODELS, value=MODELS[0], label="Model", elem_id="model-dd",
             )
-            module_model_dd = gr.Dropdown(
-                choices=MODULE_MODEL_CHOICES, value="(same as main model)",
-                label="Module model", elem_id="module-model-dd",
-            )
-            auto_cb   = gr.Checkbox(label="Auto-select modules", value=True,  elem_id="auto-cb")
+            auto_cb   = gr.Checkbox(label="Auto-select agents", value=True,  elem_id="auto-cb")
             search_cb = gr.Checkbox(label="Skip web search",     value=False, elem_id="search-cb")
             deep_cb   = gr.Checkbox(label="Deep research",       value=True,  elem_id="deep-cb")
             repeat_cb = gr.Checkbox(label="Repeat prompt",       value=True,  elem_id="repeat-cb")
@@ -654,7 +646,7 @@ with gr.Blocks(title="Fusen") as demo:
     submit_btn.click(
         fn=run_analysis,
         inputs=[
-            problem_input, model_dd, module_model_dd, api_key_input,
+            problem_input, model_dd, api_key_input,
             auto_cb, search_cb, deep_cb,
             repeat_cb, tavily_input, context_input,
             project_mem_state, brief_area,

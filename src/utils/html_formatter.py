@@ -9,7 +9,7 @@ import re
 from datetime import datetime, timezone
 from typing import List
 
-from src.models.schemas import Conflict, ConflictResolution, FinalAnalysis, ModuleOutput
+from src.models.schemas import Conflict, ConflictResolution, FinalAnalysis, AgentOutput
 
 _CITE_RE = re.compile(r"\[(\d+)\]")
 _URL_RE = re.compile(r"(https?://[^\s<>&\"]+)")
@@ -122,16 +122,16 @@ ul.flags li::before { position: absolute; left: 0; font-weight: 700; }
 .resolution-verdict, .resolution-rec { margin: .4rem 0; }
 .resolution-rec { font-style: italic; }
 
-/* ── Module detail ──────────────────────────────────────── */
-.module { margin: 1.25rem 0; }
-.module-name {
+/* ── Agent detail ──────────────────────────────────────── */
+.agent-block { margin: 1.25rem 0; }
+.agent-name {
   background: #f0f0f0; border-radius: 4px;
   padding: .35rem .75rem; font-weight: 700;
   font-size: .95rem; letter-spacing: .02em;
 }
-.module ul, .module ol { padding-left: 1.5rem; margin: .3rem 0; }
-.module li { margin-bottom: .2rem; }
-.module-key { font-weight: 600; color: #444; font-size: .85rem; text-transform: uppercase;
+.agent-block ul, .agent-block ol { padding-left: 1.5rem; margin: .3rem 0; }
+.agent-block li { margin-bottom: .2rem; }
+.agent-key { font-weight: 600; color: #444; font-size: .85rem; text-transform: uppercase;
   letter-spacing: .04em; margin: .6rem 0 .2rem; }
 
 /* ── Recommendations ────────────────────────────────────── */
@@ -237,12 +237,12 @@ def _section_toc(analysis: FinalAnalysis, report_style: str) -> str:
         entries.append(("deep-research", "Deep Research"))
 
     if report_style == "detailed":
-        round1 = [o for o in analysis.module_outputs if o.round == 1]
-        round2 = [o for o in analysis.module_outputs if o.round == 2]
+        round1 = [o for o in analysis.agent_outputs if o.round == 1]
+        round2 = [o for o in analysis.agent_outputs if o.round == 2]
         if round1:
             entries.append(("round-1", "Round 1 — Independent Analysis"))
         if round2:
-            entries.append(("round-2", "Round 2 — Cross-Module Revision"))
+            entries.append(("round-2", "Round 2 — Cross-Agent Revision"))
 
     if analysis.audit:
         entries.append(("audit", "Source &amp; Integrity Audit"))
@@ -260,17 +260,17 @@ def _section_toc(analysis: FinalAnalysis, report_style: str) -> str:
 # ── Section builders ───────────────────────────────────────────────────────
 
 def _section_config(analysis: FinalAnalysis) -> str:
-    active = list(dict.fromkeys(o.module_name for o in analysis.module_outputs))
+    active = list(dict.fromkeys(o.agent_name for o in analysis.agent_outputs))
 
-    # Module weights table — always shown, highlights non-default weights
+    # Agent weights table — always shown, highlights non-default weights
     weight_rows = []
     for name in active:
         w = analysis.weights.get(name, 1.0)
         weight_cell = f"<strong>{w}x</strong>" if w != 1.0 else "1.0x"
         weight_rows.append(f"<tr><td>{_e(name)}</td><td>{weight_cell}</td></tr>")
-    modules_table = (
+    agents_table = (
         f"<table class='weights'>"
-        f"<tr><th>Module</th><th>Weight</th></tr>"
+        f"<tr><th>Agent</th><th>Weight</th></tr>"
         f"{''.join(weight_rows)}"
         f"</table>"
     )
@@ -289,8 +289,8 @@ def _section_config(analysis: FinalAnalysis) -> str:
         rows.append(("Deactivated", ", ".join(_e(d) for d in deactivated)))
 
     meta = analysis.selection_metadata
-    if meta and meta.ad_hoc_modules:
-        rows.append(("Ad-hoc modules", ", ".join(_e(m.name) for m in meta.ad_hoc_modules)))
+    if meta and meta.ad_hoc_agents:
+        rows.append(("Ad-hoc agents", ", ".join(_e(m.name) for m in meta.ad_hoc_agents)))
     if analysis.deep_research_enabled:
         rows.append(("Deep research", "enabled"))
 
@@ -299,7 +299,7 @@ def _section_config(analysis: FinalAnalysis) -> str:
     return (
         f"<div class='config-box'>"
         f"<div class='config-cols'>"
-        f"<div><div class='config-label'>Modules &amp; Weights</div>{modules_table}</div>"
+        f"<div><div class='config-label'>Agents &amp; Weights</div>{agents_table}</div>"
         f"<div><table>{info_trs}</table></div>"
         f"</div>"
         f"</div>"
@@ -311,8 +311,8 @@ def _section_selection_metadata(analysis: FinalAnalysis) -> str:
     if not meta or not meta.auto_selected:
         return ""
     parts = [
-        f"<h2>Adaptive Module Selection</h2>",
-        f"<p><strong>Selected:</strong> {_e(', '.join(meta.selected_modules))}</p>",
+        f"<h2>Adaptive Agent Selection</h2>",
+        f"<p><strong>Selected:</strong> {_e(', '.join(meta.selected_agents))}</p>",
         f"<p><strong>Reasoning:</strong> {_e(meta.selection_reasoning)}</p>",
     ]
     if meta.gap_check_reasoning:
@@ -343,7 +343,7 @@ def _section_conflicts(conflicts: List[Conflict], anchor: bool = False) -> str:
     items = []
     for c in conflicts:
         cls = c.severity.lower()
-        modules = " vs ".join(_e(m) for m in c.modules)
+        agents_str = " vs ".join(_e(m) for m in c.agents)
         arbitration_html = ""
         if c.arbitration:
             arbitration_html = (
@@ -354,7 +354,7 @@ def _section_conflicts(conflicts: List[Conflict], anchor: bool = False) -> str:
             )
         items.append(
             f"<div class='conflict {cls}'>"
-            f"<div class='conflict-label'>[{_e(c.severity.upper())}] {modules} — {_e(c.topic)}</div>"
+            f"<div class='conflict-label'>[{_e(c.severity.upper())}] {agents_str} — {_e(c.topic)}</div>"
             f"<div>{_cite(c.description)}</div>"
             f"{arbitration_html}"
             f"</div>"
@@ -375,8 +375,8 @@ def _section_deep_research(resolutions: List[ConflictResolution]) -> str:
         return ""
     items = []
     for res in resolutions:
-        if res.modules:
-            label = f"[{res.severity.upper()}] {' vs '.join(_e(m) for m in res.modules)} — {_e(res.topic)}"
+        if res.agents:
+            label = f"[{res.severity.upper()}] {' vs '.join(_e(m) for m in res.agents)} — {_e(res.topic)}"
         else:
             label = f"[RED FLAG] {_e(res.topic)}"
         items.append(
@@ -389,10 +389,10 @@ def _section_deep_research(resolutions: List[ConflictResolution]) -> str:
     return f"<h2>Deep Research — Conflict &amp; Flag Resolutions</h2>{''.join(items)}"
 
 
-def _section_module_detail(output: ModuleOutput) -> str:
-    parts = [f"<div class='module'><div class='module-name'>{_e(output.module_name.upper())}</div>"]
+def _section_agent_detail(output: AgentOutput) -> str:
+    parts = [f"<div class='agent-block'><div class='agent-name'>{_e(output.agent_name.upper())}</div>"]
     for key, value in output.analysis.items():
-        parts.append(f"<div class='module-key'>{_e(key)}</div>")
+        parts.append(f"<div class='agent-key'>{_e(key)}</div>")
         if isinstance(value, list):
             items = "".join(f"<li>{_cite(str(v))}</li>" for v in value)
             parts.append(f"<ul>{items}</ul>")
@@ -403,7 +403,7 @@ def _section_module_detail(output: ModuleOutput) -> str:
         for flag in output.flags:
             cls = _flag_class(flag)
             flag_items.append(f"<li class='{cls}'>{_cite(flag)}</li>")
-        parts.append(f"<div class='module-key'>Flags</div><ul class='flags'>{''.join(flag_items)}</ul>")
+        parts.append(f"<div class='agent-key'>Flags</div><ul class='flags'>{''.join(flag_items)}</ul>")
     parts.append("</div>")
     return "".join(parts)
 
@@ -455,7 +455,7 @@ def _section_audit(analysis: FinalAnalysis) -> str:
         total5 = len(results5)
         ok5 = sum(1 for r in results5 if r.ok)
         badge = _badge(ok5 == total5) if total5 else "<span class='audit-warn'>No pairs found</span>"
-        rows.append(("R1→R2 consistency", f"{ok5}/{total5} modules consistent &nbsp;{badge}" if total5 else badge))
+        rows.append(("R1→R2 consistency", f"{ok5}/{total5} agents consistent &nbsp;{badge}" if total5 else badge))
 
     trs = "".join(f"<tr><td>{k}</td><td>{v}</td></tr>" for k, v in rows)
     table = f"<table class='audit-table'>{trs}</table>"
@@ -498,7 +498,7 @@ def _section_audit(analysis: FinalAnalysis) -> str:
             items = []
             for r in bad5:
                 issue_list = "".join(f"<li>{_e(i)}</li>" for i in r.issues)
-                items.append(f"<li><strong>{_e(r.module)}</strong><ul>{issue_list}</ul></li>")
+                items.append(f"<li><strong>{_e(r.agent)}</strong><ul>{issue_list}</ul></li>")
             layer5_html = f"<p class='audit-section-label'>Consistency issues:</p><ul class='audit-failures'>{''.join(items)}</ul>"
 
     return (
@@ -563,19 +563,19 @@ def format_html_report(analysis: FinalAnalysis, report_style: str = "default") -
         if dr:
             body_parts.append(f"<section id='deep-research'>{dr}</section>")
 
-    # ── Module evidence (detailed only) ──────────────────────
+    # ── Agent evidence (detailed only) ──────────────────────
     if report_style == "detailed":
-        round1 = [o for o in analysis.module_outputs if o.round == 1]
-        round2 = [o for o in analysis.module_outputs if o.round == 2]
+        round1 = [o for o in analysis.agent_outputs if o.round == 1]
+        round2 = [o for o in analysis.agent_outputs if o.round == 2]
         if round1:
             body_parts.append("<section id='round-1'><h2>Round 1 &mdash; Independent Analysis</h2>")
             for o in round1:
-                body_parts.append(_section_module_detail(o))
+                body_parts.append(_section_agent_detail(o))
             body_parts.append("</section>")
         if round2:
-            body_parts.append("<section id='round-2'><h2>Round 2 &mdash; Cross-Module Revision</h2>")
+            body_parts.append("<section id='round-2'><h2>Round 2 &mdash; Cross-Agent Revision</h2>")
             for o in round2:
-                body_parts.append(_section_module_detail(o))
+                body_parts.append(_section_agent_detail(o))
             body_parts.append("</section>")
 
     body_parts.append(f"<div id='audit'>{_section_audit(analysis)}</div>")

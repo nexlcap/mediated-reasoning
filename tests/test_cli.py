@@ -4,23 +4,23 @@ import tempfile
 import pytest
 from unittest.mock import MagicMock, patch
 
-from src.llm.prompts import ALL_MODULE_NAMES
-from src.main import main, DEFAULT_MODULE_NAMES
+from src.llm.prompts import ALL_AGENT_NAMES
+from src.main import main, DEFAULT_AGENT_NAMES
 
 
-class TestListModules:
-    def test_list_modules_prints_names(self, capsys):
-        with patch("sys.argv", ["prog", "--list-modules"]):
+class TestListAgents:
+    def test_list_agents_prints_names(self, capsys):
+        with patch("sys.argv", ["prog", "--list-agents"]):
             with pytest.raises(SystemExit) as exc_info:
                 main()
             assert exc_info.value.code == 0
 
         output = capsys.readouterr().out
-        for name in ALL_MODULE_NAMES:
+        for name in ALL_AGENT_NAMES:
             assert name in output
 
-    def test_list_modules_sorted(self, capsys):
-        with patch("sys.argv", ["prog", "--list-modules"]):
+    def test_list_agents_sorted(self, capsys):
+        with patch("sys.argv", ["prog", "--list-agents"]):
             with pytest.raises(SystemExit):
                 main()
 
@@ -43,7 +43,7 @@ class TestMainEntrypoint:
     @patch("src.main.ClaudeClient")
     def test_basic_run(self, mock_client_cls, mock_mediator_cls, mock_export):
         mock_result = MagicMock()
-        mock_result.module_outputs = []
+        mock_result.agent_outputs = []
         mock_mediator_cls.return_value.analyze.return_value = mock_result
 
         with patch("sys.argv", ["prog", "test problem"]):
@@ -56,7 +56,7 @@ class TestMainEntrypoint:
     @patch("src.main.ClaudeClient")
     def test_output_flag_calls_export(self, mock_client_cls, mock_mediator_cls, mock_export):
         mock_result = MagicMock()
-        mock_result.module_outputs = []
+        mock_result.agent_outputs = []
         mock_mediator_cls.return_value.analyze.return_value = mock_result
         mock_export.return_value = "output/test/2026-01-01T00-00-00"
 
@@ -70,7 +70,7 @@ class TestMainEntrypoint:
     @patch("src.main.ClaudeClient")
     def test_report_flag(self, mock_client_cls, mock_mediator_cls, mock_export):
         mock_result = MagicMock()
-        mock_result.module_outputs = []
+        mock_result.agent_outputs = []
         mock_mediator_cls.return_value.analyze.return_value = mock_result
 
         with patch("sys.argv", ["prog", "test", "--report", "--output"]):
@@ -83,7 +83,7 @@ class TestMainEntrypoint:
     @patch("src.main.ClaudeClient")
     def test_customer_report_flag(self, mock_client_cls, mock_mediator_cls, mock_export):
         mock_result = MagicMock()
-        mock_result.module_outputs = []
+        mock_result.agent_outputs = []
         mock_mediator_cls.return_value.analyze.return_value = mock_result
 
         with patch("sys.argv", ["prog", "test", "--customer-report", "--output"]):
@@ -96,7 +96,7 @@ class TestMainEntrypoint:
     @patch("src.main.ClaudeClient")
     def test_interactive_flag_exits_on_exit(self, mock_client_cls, mock_mediator_cls, mock_export):
         mock_result = MagicMock()
-        mock_result.module_outputs = []
+        mock_result.agent_outputs = []
         mock_mediator_cls.return_value.analyze.return_value = mock_result
 
         with patch("sys.argv", ["prog", "test problem", "--interactive"]):
@@ -108,7 +108,7 @@ class TestMainEntrypoint:
     @patch("src.main.ClaudeClient")
     def test_interactive_flag_exits_on_empty(self, mock_client_cls, mock_mediator_cls, mock_export):
         mock_result = MagicMock()
-        mock_result.module_outputs = []
+        mock_result.agent_outputs = []
         mock_mediator_cls.return_value.analyze.return_value = mock_result
 
         with patch("sys.argv", ["prog", "test problem", "--interactive"]):
@@ -120,7 +120,7 @@ class TestMainEntrypoint:
     @patch("src.main.ClaudeClient")
     def test_interactive_flag_exits_on_eof(self, mock_client_cls, mock_mediator_cls, mock_export):
         mock_result = MagicMock()
-        mock_result.module_outputs = []
+        mock_result.agent_outputs = []
         mock_mediator_cls.return_value.analyze.return_value = mock_result
 
         with patch("sys.argv", ["prog", "test problem", "--interactive"]):
@@ -132,7 +132,7 @@ class TestMainEntrypoint:
     @patch("src.main.ClaudeClient")
     def test_interactive_calls_followup(self, mock_client_cls, mock_mediator_cls, mock_export):
         mock_result = MagicMock()
-        mock_result.module_outputs = []
+        mock_result.agent_outputs = []
         mock_mediator = mock_mediator_cls.return_value
         mock_mediator.analyze.return_value = mock_result
         mock_mediator.followup.return_value = "Follow-up answer"
@@ -151,7 +151,7 @@ class TestAutoSelectFlag:
     @patch("src.main.ClaudeClient")
     def test_auto_select_on_by_default(self, mock_client_cls, mock_mediator_cls, mock_export):
         mock_result = MagicMock()
-        mock_result.module_outputs = []
+        mock_result.agent_outputs = []
         mock_mediator_cls.return_value.analyze.return_value = mock_result
 
         with patch("sys.argv", ["prog", "test"]):
@@ -165,7 +165,7 @@ class TestAutoSelectFlag:
     @patch("src.main.ClaudeClient")
     def test_no_auto_select_disables_it(self, mock_client_cls, mock_mediator_cls, mock_export):
         mock_result = MagicMock()
-        mock_result.module_outputs = []
+        mock_result.agent_outputs = []
         mock_mediator_cls.return_value.analyze.return_value = mock_result
 
         with patch("sys.argv", ["prog", "test", "--no-auto-select"]):
@@ -181,7 +181,7 @@ class TestUserContext:
     @patch("src.main.ClaudeClient")
     def test_context_flag_passed_to_mediator(self, mock_client_cls, mock_mediator_cls, mock_export):
         mock_result = MagicMock()
-        mock_result.module_outputs = []
+        mock_result.agent_outputs = []
         mock_mediator_cls.return_value.analyze.return_value = mock_result
 
         with patch("sys.argv", ["prog", "test", "--context", "Bootstrapped SaaS, 2 founders"]):
@@ -195,7 +195,7 @@ class TestUserContext:
     @patch("src.main.ClaudeClient")
     def test_no_context_passes_none(self, mock_client_cls, mock_mediator_cls, mock_export):
         mock_result = MagicMock()
-        mock_result.module_outputs = []
+        mock_result.agent_outputs = []
         mock_mediator_cls.return_value.analyze.return_value = mock_result
 
         with patch("sys.argv", ["prog", "test"]):
@@ -209,7 +209,7 @@ class TestUserContext:
     @patch("src.main.ClaudeClient")
     def test_context_file_loaded(self, mock_client_cls, mock_mediator_cls, mock_export):
         mock_result = MagicMock()
-        mock_result.module_outputs = []
+        mock_result.agent_outputs = []
         mock_mediator_cls.return_value.analyze.return_value = mock_result
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
@@ -228,7 +228,7 @@ class TestUserContext:
     @patch("src.main.ClaudeClient")
     def test_context_flag_takes_priority_over_file(self, mock_client_cls, mock_mediator_cls, mock_export):
         mock_result = MagicMock()
-        mock_result.module_outputs = []
+        mock_result.agent_outputs = []
         mock_mediator_cls.return_value.analyze.return_value = mock_result
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
@@ -250,7 +250,7 @@ class TestProjectFlag:
     def test_project_flag_loads_brief_into_user_context(self, mock_client_cls, mock_mediator_cls, mock_export, tmp_path):
         """--project causes brief to be prepended to user_context passed to Mediator."""
         mock_result = MagicMock()
-        mock_result.module_outputs = []
+        mock_result.agent_outputs = []
         mock_mediator_cls.return_value.analyze.return_value = mock_result
 
         project_dir = str(tmp_path / "proj")
@@ -267,7 +267,7 @@ class TestProjectFlag:
     def test_project_flag_merges_with_context(self, mock_client_cls, mock_mediator_cls, mock_export, tmp_path):
         """--project brief is prepended when --context is also given."""
         mock_result = MagicMock()
-        mock_result.module_outputs = []
+        mock_result.agent_outputs = []
         mock_mediator_cls.return_value.analyze.return_value = mock_result
 
         project_dir = str(tmp_path / "proj")
@@ -289,7 +289,7 @@ class TestProjectFlag:
     ):
         """Interactive mode + --project writes a session file on exit."""
         mock_result = MagicMock()
-        mock_result.module_outputs = []
+        mock_result.agent_outputs = []
         mock_result.problem = "Test"
         mock_result.synthesis = "OK"
         mock_result.recommendations = []
@@ -315,19 +315,19 @@ class TestProjectFlag:
         assert "What about costs?" in content
 
 
-class TestListModulesExpanded:
-    def test_list_modules_shows_all_12(self, capsys):
-        with patch("sys.argv", ["prog", "--list-modules"]):
+class TestListAgentsExpanded:
+    def test_list_agents_shows_all_12(self, capsys):
+        with patch("sys.argv", ["prog", "--list-agents"]):
             with pytest.raises(SystemExit) as exc_info:
                 main()
             assert exc_info.value.code == 0
 
         output = capsys.readouterr().out
-        for name in ALL_MODULE_NAMES:
+        for name in ALL_AGENT_NAMES:
             assert name in output
 
-    def test_list_modules_shows_markers(self, capsys):
-        with patch("sys.argv", ["prog", "--list-modules"]):
+    def test_list_agents_shows_markers(self, capsys):
+        with patch("sys.argv", ["prog", "--list-agents"]):
             with pytest.raises(SystemExit):
                 main()
 
