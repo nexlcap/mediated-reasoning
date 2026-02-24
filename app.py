@@ -33,8 +33,9 @@ MODELS = [
     "gpt-4o-mini",
     "xai/grok-2",
     "xai/grok-3",
-    "gemini/gemini-2.0-flash",
-    "gemini/gemini-2.0-flash-lite",
+    "gemini/gemini-2.5-flash",
+    "gemini/gemini-2.5-flash-lite",
+    "gemini/gemini-2.5-pro",
 ]
 
 # ── CSS ───────────────────────────────────────────────────────────────────────
