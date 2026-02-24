@@ -40,9 +40,6 @@ cp .env.example .env
 # Basic analysis
 python -m src.main "Should we build a food delivery app?"
 
-# Adaptive agent selection — LLM picks relevant agents from a pool of 12
-python -m src.main "your problem" --auto-select
-
 # Export all formats (md, json, html) to output/ directory
 python -m src.main "your problem" --output
 
@@ -57,9 +54,6 @@ python -m src.main "your problem" --deep-research
 
 # Interactive follow-up questions after analysis
 python -m src.main "your problem" --interactive
-
-# Adjust agent weights (0 deactivates an agent)
-python -m src.main "your problem" --weight legal=2 --weight cost=0
 
 # Use a separate model for agent calls (cheaper/faster)
 python -m src.main "your problem" --agent-model claude-haiku-4-5-20251001
