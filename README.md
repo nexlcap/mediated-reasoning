@@ -39,7 +39,7 @@ pip install -r requirements.txt
 
 cp .env.example .env
 # Add ANTHROPIC_API_KEY to .env for the default Claude model
-# For other providers, see .env.example — OpenAI, Google, Groq, or Ollama (local, no key)
+# For other providers, see .env.example — OpenAI, Google (GEMINI_API_KEY), Groq, or Ollama (local, no key)
 
 # Optional: Tavily for higher-quality search results
 # pip install -r requirements-tavily.txt
@@ -72,6 +72,7 @@ python -m src.main "your problem" --agent-model claude-haiku-4-5-20251001
 
 # Use any LiteLLM-supported provider (OpenAI, Gemini, Groq, local Ollama, etc.)
 python -m src.main "your problem" --model gpt-4o --agent-model gpt-4o-mini
+python -m src.main "your problem" --model gemini/gemini-2.0-flash --agent-model gemini/gemini-2.0-flash-lite
 python -m src.main "your problem" --model ollama/llama3.3  # fully local, no API key
 
 # Tag run for metrics comparison

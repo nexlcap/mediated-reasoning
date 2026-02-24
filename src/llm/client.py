@@ -30,8 +30,9 @@ logger = get_logger(__name__)
 
 # Default model — any LiteLLM-supported model string works here.
 # Examples:
-#   Anthropic : claude-sonnet-4-20250514
+#   Anthropic : claude-sonnet-4-6, claude-opus-4-6
 #   OpenAI    : gpt-4o, gpt-4o-mini
+#   Google    : gemini/gemini-2.0-flash, gemini/gemini-1.5-pro
 #   Ollama    : ollama/llama3.3, ollama/phi4, ollama/qwen2.5:72b
 #   Together  : together_ai/meta-llama/Llama-3-70b-chat-hf
 DEFAULT_MODEL = "claude-sonnet-4-6"

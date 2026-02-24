@@ -33,6 +33,10 @@ MODELS = [
     "gpt-4o-mini",
     "xai/grok-2",
     "xai/grok-3",
+    "gemini/gemini-2.0-flash",
+    "gemini/gemini-2.0-flash-lite",
+    "gemini/gemini-1.5-pro",
+    "gemini/gemini-1.5-flash",
 ]
 
 # ── CSS ───────────────────────────────────────────────────────────────────────
@@ -206,7 +210,7 @@ body,
 _JS = """
 function() {
     const TIPS = {
-        "api-key":          "Your Anthropic / OpenAI / xAI API key — never stored or shared",
+        "api-key":          "Your Anthropic / OpenAI / Google / xAI API key — never stored or shared",
         "context":          "Background about your situation (stage, budget, constraints) — prepended to every analysis",
         "context-expand":   "Open in a larger editing window",
         "projects-dd":      "Pick an existing project to load its accumulated brief",
