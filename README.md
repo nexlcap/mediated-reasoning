@@ -46,7 +46,7 @@ python -m src.main "your problem" --output
 # Detailed internal report (round-by-round breakdown)
 python -m src.main "your problem" --report
 
-# Skip web search (cite from training knowledge only)
+# Skip web search pre-pass (use model training knowledge only)
 python -m src.main "your problem" --no-search
 
 # Deep research round: targeted evidence gathering for conflicts and red flags
@@ -67,6 +67,19 @@ python -m src.main "your problem" --output --run-label baseline
 
 # List available agents
 python -m src.main --list-agents
+
+# Inject user context so recommendations are calibrated to your situation
+python -m src.main "your problem" --context "Bootstrapped SaaS, 2 co-founders, $8k MRR, B2B"
+python -m src.main "your problem" --context-file context.txt
+
+# Persist project memory across sessions (brief.md + session logs)
+python -m src.main "your problem" --project ./my-project
+
+# Generate a client-facing report (no internal reasoning details)
+python -m src.main "your problem" --customer-report
+
+# Show detailed round-by-round output in the terminal
+python -m src.main "your problem" --verbose
 ```
 
 ### Output Directory Structure
