@@ -68,15 +68,35 @@ Modules are dynamically generated per problem. For each run, an LLM pre-pass inv
 - `technical_integration_risk` — API compatibility, SSO/SCIM requirements, security review processes
 - `customer_success_ops` — Onboarding complexity, churn drivers, expansion revenue mechanics
 
-### Fallback Defaults (used only with `--no-auto-select`)
+### Fixed Pool (used only with `--no-auto-select`)
 
-Three fixed agents representing ground-truth factors any business must address:
+A fixed pool of 12 named agents is available when dynamic generation is explicitly disabled. Two legitimate reasons to use it:
 
-- **Market** — Market size, competitive landscape, customer demand, product-market fit
-- **Cost** — Initial investment, operating costs, revenue projections, break-even analysis
-- **Risk** — Uncertainty assessment, downside scenarios, threat categorization, contingency planning
+1. **Deterministic testing** — fixed agents produce stable, reproducible panels for CI, regression tests, and prompt evaluation. Test assertions remain reliable across runs.
+2. **User-mandated roles** — when a user explicitly requires certain specialist perspectives for every run regardless of problem domain (e.g. a compliance-heavy organisation that always needs `legal`, `ethics`, `political`).
 
-A fixed pool of 12 named agents (market, tech, cost, legal, scalability, political, social, environmental, ethics, operational, strategy, risk) remains available for use with `--no-auto-select`. Run `--list-agents` to see the full list.
+The 12 fixed agents, all defined in `src/llm/prompts.py`:
+
+| Name | Domain |
+|---|---|
+| `market` | Market size, competitive landscape, PMF, GTM |
+| `tech` | Stack, implementation complexity, technical risk |
+| `cost` | Investment, operating costs, revenue, break-even |
+| `legal` | Regulatory, compliance, liability, IP |
+| `scalability` | Growth, infrastructure, team, bottlenecks |
+| `political` | Policy, stability, geopolitics, public sector |
+| `social` | Demographics, public acceptance, equity, community |
+| `environmental` | Ecological footprint, climate risk, sustainability |
+| `ethics` | Fairness, bias, privacy, dual-use, accountability |
+| `operational` | Processes, HR, supply chain, org structure |
+| `strategy` | Business model, moats, positioning, partnerships |
+| `risk` | Uncertainty, downside scenarios, hedging, contingency |
+
+Run `--list-agents` to see the full list. All 12 are production-ready; `AGENT_SYSTEM_PROMPTS` in `src/llm/prompts.py` is the authoritative prompt configuration. A subset (market, cost, risk, legal, tech, scalability) also have class files in `src/agents/` for deterministic testing via `AGENT_REGISTRY`.
+
+### Architecture Invariant
+
+Dynamic selection is the primary design goal. The fixed pool is a deliberate, maintained fallback — not a deprecated path. Both paths must remain functional. Changes to `AGENT_SYSTEM_PROMPTS` affect `--no-auto-select` runs and all tests that use fixed agents.
 
 ## Data Models
 

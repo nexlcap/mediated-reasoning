@@ -223,7 +223,8 @@ function() {
         "brief":            "Living one-page project summary — rewritten by the AI after each session, always editable by you",
         "brief-expand":     "Open in a larger editing window",
         "save-session":     "Append this session to the log and ask the AI to rewrite the project brief",
-        "model-dd":         "Main LLM used for synthesis and the final report",
+        "model-dd":         "LLM used for synthesis and the final report",
+        "agent-model-dd":   "LLM used for individual specialist agents — set to a cheaper/faster model to reduce cost without affecting synthesis quality",
         "auto-cb":          "Let the AI choose the most relevant specialist lenses for your specific problem",
         "search-cb":        "Disable web search — runs faster but recommendations won't cite live sources",
         "deep-cb":          "Run an extra conflict-resolution pass to reconcile disagreements between specialists",
@@ -392,7 +393,7 @@ def save_project_session(
 
 # ── Analysis ──────────────────────────────────────────────────────────────────
 def run_analysis(
-    problem, model, api_key,
+    problem, model, agent_model, api_key,
     auto_select, no_search, deep_research,
     repeat_prompt, tavily_key, user_context,
     project_memory, brief_text,
@@ -428,8 +429,8 @@ def run_analysis(
         status_q.put(("status", msg))
 
     client       = ClaudeClient(model=model, api_key=key)
-    agent_client = None
-    mediator      = Mediator(
+    agent_client = ClaudeClient(model=agent_model, api_key=key) if agent_model != model else None
+    mediator     = Mediator(
         client, weights={},
         auto_select=auto_select, search=not no_search,
         deep_research=deep_research, agent_client=agent_client,
@@ -564,7 +565,10 @@ with gr.Blocks(title="Fusen") as demo:
 
         with gr.Accordion("Advanced options", open=False):
             model_dd = gr.Dropdown(
-                choices=MODELS, value=MODELS[0], label="Model", elem_id="model-dd",
+                choices=MODELS, value=MODELS[0], label="Synthesis model", elem_id="model-dd",
+            )
+            agent_model_dd = gr.Dropdown(
+                choices=MODELS, value=MODELS[0], label="Agent model", elem_id="agent-model-dd",
             )
             auto_cb   = gr.Checkbox(label="Auto-select agents", value=True,  elem_id="auto-cb")
             search_cb = gr.Checkbox(label="Skip web search",     value=False, elem_id="search-cb")
@@ -649,7 +653,7 @@ with gr.Blocks(title="Fusen") as demo:
     submit_btn.click(
         fn=run_analysis,
         inputs=[
-            problem_input, model_dd, api_key_input,
+            problem_input, model_dd, agent_model_dd, api_key_input,
             auto_cb, search_cb, deep_cb,
             repeat_cb, tavily_input, context_input,
             project_mem_state, brief_area,
