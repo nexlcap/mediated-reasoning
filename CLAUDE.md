@@ -15,7 +15,7 @@ CLI tool using multi-agent mediated reasoning to analyze complex problems from m
 | # | Item | Status |
 |---|------|--------|
 | 1 | Parallel agent execution | Done |
-| 2 | Export to markdown/JSON/HTML (`--output report.md`) | Done |
+| 2 | Export to markdown/JSON/HTML (`--output`, writes to `output/` dir) | Done |
 | 3 | Suppress logging noise (stderr or `--verbose` only) | Done |
 | 4 | Agent weighting (`--weight legal=2`) | Removed — agent set is dynamically selected per run; pre-assigning weights to unknown agents doesn't make sense |
 | 5 | Structured conflict extraction (objects, not free-text) | Done |
@@ -26,7 +26,7 @@ CLI tool using multi-agent mediated reasoning to analyze complex problems from m
 | 10 | Sources/citations field | Done |
 | 11 | Langfuse integration (tracing, cost tracking) | Done |
 | 12 | `--customer-report` flag (client-facing, no internals) | Done |
-| 13 | Optional RACI matrix (`--raci`) for synthesis conflict resolution | Removed — hardcoded, rarely applicable, replaced by agent weights |
+| 13 | Optional RACI matrix (`--raci`) for synthesis conflict resolution | Removed — hardcoded, rarely applicable |
 | 14 | Adaptive agent selection — pre-pass to activate only relevant agents | Done |
 | 15 | Runtime re-delegation on failure — retry/redistribute failed agents | Open |
 | 16 | Per-agent trust scores — dynamic reliability tracking across runs | Open |
@@ -38,7 +38,7 @@ CLI tool using multi-agent mediated reasoning to analyze complex problems from m
 | 22 | Prompt repetition for synthesis + auto-select (on by default, `--no-repeat-prompt` to disable, arxiv 2512.14982) | Done |
 | 23 | DuckDuckGo fallback search — zero-config default; Tavily opt-in via `TAVILY_API_KEY` | Done |
 | 24 | Lightweight run quality gate — score + tier + warnings from structural metrics, no LLM calls | Done |
-| 25 | LiteLLM backend — unified API for multi-provider + local model support (Ollama, OpenAI, Anthropic, etc.) | Done |
+| 25 | LiteLLM backend — unified API for multi-provider + local model support (Anthropic, OpenAI, Google Gemini, xAI, Ollama, etc.) | Done |
 | 26 | Gradio UI for HuggingFace Spaces — public web interface, separate HF Space repo, pip-installable main package | Done |
 | 27 | User context / constraints profile — inject stage, resources, industry into every run so recommendations are actionable, not generic | Done |
 | 28 | A vs B comparison mode — parallel panels for two options + synthesis that explicitly contrasts them | Open |

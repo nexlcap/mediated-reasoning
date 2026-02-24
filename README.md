@@ -28,7 +28,7 @@ Three rounds of structured reasoning:
 2. **Round 2 — Informed Revision:** Specialists see each other's outputs and revise their positions with full cross-domain context.
 3. **Round 3 — Synthesis:** Conflicts are identified and arbitrated, critical issues are flagged (red/yellow/green), and a final recommendation is generated.
 
-Agents run in parallel within each round via programmatic tool calling (PTC). LiteLLM is used as the LLM backend, supporting any provider out of the box — Anthropic (default), OpenAI, Google Gemini, Groq, or fully local models via Ollama (no API key required). A web search pre-pass grounds each agent's analysis in real, cited sources (DuckDuckGo by default — no API key required; Tavily opt-in for higher quality). A structural quality gate scores every run on source survival, agent completion, and critical flag density, and displays the result (`good` / `degraded` / `poor`) at the end of every output.
+Agents run in parallel within each round via programmatic tool calling (PTC). LiteLLM is used as the LLM backend, supporting any provider out of the box — Anthropic (default), OpenAI, Google Gemini, xAI (Grok), Groq, or fully local models via Ollama (no API key required). A web search pre-pass grounds each agent's analysis in real, cited sources (DuckDuckGo by default — no API key required; Tavily opt-in for higher quality). A structural quality gate scores every run on source survival, agent completion, and critical flag density, and displays the result (`good` / `degraded` / `poor`) at the end of every output.
 
 ## Setup
 
@@ -39,7 +39,7 @@ pip install -r requirements.txt
 
 cp .env.example .env
 # Add ANTHROPIC_API_KEY to .env for the default Claude model
-# For other providers, see .env.example — OpenAI, Google (GEMINI_API_KEY), Groq, or Ollama (local, no key)
+# For other providers, see .env.example — OpenAI, Google (GEMINI_API_KEY), xAI (XAI_API_KEY), Groq, or Ollama (local, no key)
 
 # Optional: Tavily for higher-quality search results
 # pip install -r requirements-tavily.txt
@@ -70,9 +70,10 @@ python -m src.main "your problem" --interactive
 # Use a separate model for agent calls (cheaper/faster)
 python -m src.main "your problem" --agent-model claude-haiku-4-5-20251001
 
-# Use any LiteLLM-supported provider (OpenAI, Gemini, Groq, local Ollama, etc.)
+# Use any LiteLLM-supported provider (OpenAI, Gemini, xAI, Groq, local Ollama, etc.)
 python -m src.main "your problem" --model gpt-4o --agent-model gpt-4o-mini
 python -m src.main "your problem" --model gemini/gemini-2.5-pro --agent-model gemini/gemini-2.5-flash  # Google Gemini
+python -m src.main "your problem" --model xai/grok-3 --agent-model xai/grok-2                         # xAI Grok
 python -m src.main "your problem" --model ollama/llama3.3  # fully local, no API key
 
 # Tag run for metrics comparison
