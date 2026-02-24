@@ -76,14 +76,14 @@ class ClaudeClient:
         ]
         return {k: self._usage[k] for k in keys}
 
-    def analyze(self, system_prompt: str, user_prompt: str, repeat_prompt: bool = False, timeout: int = 120) -> Dict:
+    def analyze(self, system_prompt: str, user_prompt: str, repeat_prompt: bool = False, timeout: int = 120, max_tokens: Optional[int] = None) -> Dict:
         if repeat_prompt:
             user_prompt = user_prompt + "\n\n" + user_prompt
         logger.debug("Sending request to %s", self.model)
         try:
             response = litellm.completion(
                 model=self.model,
-                max_tokens=self.max_tokens,
+                max_tokens=max_tokens or self.max_tokens,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
@@ -256,15 +256,29 @@ class ClaudeClient:
 
     @staticmethod
     def _extract_json(text: str) -> Dict:
-        # Try to extract JSON from markdown code fences
+        # 1. Closed code fence (normal case)
         match = re.search(r"```(?:json)?\s*\n?(.*?)\n?\s*```", text, re.DOTALL)
         if match:
             extracted = match.group(1).strip()
             if not extracted:
                 raise ValueError(f"Empty JSON block in code fence. Full response ({len(text)} chars): {text[:500]!r}")
             return json.loads(extracted)
-        # Try parsing the whole text as JSON
+        # 2. Plain JSON (no code fence)
         try:
             return json.loads(text)
-        except json.JSONDecodeError as e:
-            raise ValueError(f"JSON parse failed ({e}). Response ({len(text)} chars, finish_reason unknown): {text[:500]!r}") from e
+        except json.JSONDecodeError:
+            pass
+        # 3. Truncated code fence — opening ``` present but response was cut off before closing ```
+        match = re.search(r"```(?:json)?\s*\n?(.*)", text, re.DOTALL)
+        if match:
+            extracted = match.group(1).strip()
+            if extracted:
+                try:
+                    return json.loads(extracted)
+                except json.JSONDecodeError as e:
+                    raise ValueError(
+                        f"Truncated JSON in code fence ({e}). "
+                        f"Response ({len(text)} chars) was cut off mid-JSON — increase max_tokens for synthesis. "
+                        f"Preview: {text[:300]!r}"
+                    ) from e
+        raise ValueError(f"No JSON found in response ({len(text)} chars): {text[:500]!r}")

@@ -538,7 +538,7 @@ class Mediator:
                     global_sources=pre_global_sources,
                 )
                 try:
-                    synthesis_result = self.client.analyze(system, user, repeat_prompt=self.repeat_prompt)
+                    synthesis_result = self.client.analyze(system, user, repeat_prompt=self.repeat_prompt, max_tokens=16384)
                 except Exception as e:
                     logger.error("Synthesis failed: %s", e)
             else:
