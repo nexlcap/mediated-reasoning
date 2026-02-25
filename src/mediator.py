@@ -7,7 +7,6 @@ from typing import Dict, List, Optional
 from src import observability
 from src.llm.client import ClaudeClient
 from src.llm.prompts import (
-    AGENT_SYSTEM_PROMPTS,
     build_dynamic_agent_generation_prompt,
     build_followup_prompt,
     build_gap_check_prompt,
@@ -16,7 +15,6 @@ from src.llm.prompts import (
 )
 from src.models.schemas import AdHocAgent, Conflict, ConflictResolution, FinalAnalysis, AgentOutput, RoundTiming, SearchContext, SelectionMetadata
 from src.search import SearchPrePass
-from src.agents import AGENT_REGISTRY
 from src.agents.base_agent import create_dynamic_agent
 from src.utils.logger import get_logger
 
@@ -221,8 +219,6 @@ class Mediator:
     def __init__(
         self,
         client: ClaudeClient,
-        weights: Optional[Dict[str, float]] = None,
-        auto_select: bool = False,
         search: bool = True,
         deep_research: bool = False,
         agent_client: Optional[ClaudeClient] = None,
@@ -233,8 +229,6 @@ class Mediator:
     ):
         self.client = client                              # synthesis + auto-select + gap-check
         self.agent_client = agent_client or client     # agent analysis + search queries
-        self.weights = weights or {}
-        self.auto_select = auto_select
         self.search = search
         self.deep_research = deep_research
         self.repeat_prompt = repeat_prompt
@@ -243,9 +237,6 @@ class Mediator:
         self.user_context = (user_context or "").strip()
 
         self.selection_metadata: Optional[SelectionMetadata] = None
-
-        if not auto_select:
-            self._init_default_agents()
 
     def _progress(self, msg: str) -> None:
         if self._on_progress:
@@ -260,82 +251,64 @@ class Mediator:
             f"Problem to analyze:\n{problem}"
         )
 
-    def _init_default_agents(self):
-        all_agents = [cls(self.agent_client) for cls in AGENT_REGISTRY]
-        self.deactivated_agents = [
-            m.name for m in all_agents if self.weights.get(m.name, 1) == 0
-        ]
-        self.agents = [
-            m for m in all_agents if m.name not in self.deactivated_agents
-        ]
-
     def _select_agents(self, problem: str) -> None:
         """Run the two-step LLM pre-pass: dynamic panel generation + gap check."""
-        try:
-            # Step 1: Generate specialist panel from scratch
-            system, user = build_dynamic_agent_generation_prompt(problem)
-            gen_result = self.client.analyze(system, user, repeat_prompt=self.repeat_prompt)
-            raw_agents = gen_result.get("agents", [])
-            selection_reasoning = gen_result.get("reasoning", "")
+        # Step 1: Generate specialist panel from scratch
+        system, user = build_dynamic_agent_generation_prompt(problem)
+        gen_result = self.client.analyze(system, user, repeat_prompt=self.repeat_prompt)
+        raw_agents = gen_result.get("agents", [])
+        selection_reasoning = gen_result.get("reasoning", "")
 
-            # Validate structure (no fixed-pool check)
-            generated = []
-            seen = set()
-            for item in raw_agents:
-                if not isinstance(item, dict):
-                    continue
-                name = item.get("name", "").strip()
-                prompt = item.get("system_prompt", "").strip()
-                if not name or not prompt or name in seen:
-                    continue
-                generated.append({"name": name, "system_prompt": prompt})
-                seen.add(name)
+        # Validate structure
+        generated = []
+        seen = set()
+        for item in raw_agents:
+            if not isinstance(item, dict):
+                continue
+            name = item.get("name", "").strip()
+            prompt = item.get("system_prompt", "").strip()
+            if not name or not prompt or name in seen:
+                continue
+            generated.append({"name": name, "system_prompt": prompt})
+            seen.add(name)
 
-            if not generated:
-                logger.warning("Dynamic generation returned no valid agents, falling back to defaults")
-                self._init_default_agents()
-                return
+        if not generated:
+            raise ValueError("Dynamic generation returned no valid agents")
 
-            # Step 2: Gap check against generated panel
-            system, user = build_gap_check_prompt(problem, generated)
-            gap_result = self.client.analyze(system, user, repeat_prompt=self.repeat_prompt)
-            gap_reasoning = gap_result.get("reasoning", "")
-            raw_ad_hoc = gap_result.get("ad_hoc_agents", [])
+        # Step 2: Gap check against generated panel
+        system, user = build_gap_check_prompt(problem, generated)
+        gap_result = self.client.analyze(system, user, repeat_prompt=self.repeat_prompt)
+        gap_reasoning = gap_result.get("reasoning", "")
+        raw_ad_hoc = gap_result.get("ad_hoc_agents", [])
 
-            ad_hoc_agents: List[AdHocAgent] = []
-            for item in raw_ad_hoc[:3]:
-                if not isinstance(item, dict):
-                    continue
-                name = item.get("name", "")
-                prompt = item.get("system_prompt", "")
-                if not name or not prompt or name in seen:
-                    continue
-                ad_hoc_agents.append(AdHocAgent(name=name, system_prompt=prompt))
-                seen.add(name)
+        ad_hoc_agents: List[AdHocAgent] = []
+        for item in raw_ad_hoc[:3]:
+            if not isinstance(item, dict):
+                continue
+            name = item.get("name", "")
+            prompt = item.get("system_prompt", "")
+            if not name or not prompt or name in seen:
+                continue
+            ad_hoc_agents.append(AdHocAgent(name=name, system_prompt=prompt))
+            seen.add(name)
 
-            # Instantiate all via create_dynamic_agent (no registry lookup for auto-select)
-            agents = [
-                create_dynamic_agent(m["name"], m["system_prompt"], self.agent_client)
-                for m in generated
-            ]
-            for adhoc in ad_hoc_agents:
-                agents.append(create_dynamic_agent(adhoc.name, adhoc.system_prompt, self.agent_client))
+        # Instantiate all via create_dynamic_agent
+        agents = [
+            create_dynamic_agent(m["name"], m["system_prompt"], self.agent_client)
+            for m in generated
+        ]
+        for adhoc in ad_hoc_agents:
+            agents.append(create_dynamic_agent(adhoc.name, adhoc.system_prompt, self.agent_client))
 
-            # Weight=0 deactivation (unchanged)
-            self.deactivated_agents = [m.name for m in agents if self.weights.get(m.name, 1) == 0]
-            self.agents = [m for m in agents if m.name not in self.deactivated_agents]
+        self.agents = agents
 
-            self.selection_metadata = SelectionMetadata(
-                auto_selected=True,
-                selected_agents=[m.name for m in self.agents],
-                selection_reasoning=selection_reasoning,
-                gap_check_reasoning=gap_reasoning,
-                ad_hoc_agents=ad_hoc_agents,
-            )
-
-        except Exception as e:
-            logger.error("Auto-select failed (%s), falling back to defaults", e)
-            self._init_default_agents()
+        self.selection_metadata = SelectionMetadata(
+            auto_selected=True,
+            selected_agents=[m.name for m in self.agents],
+            selection_reasoning=selection_reasoning,
+            gap_check_reasoning=gap_reasoning,
+            ad_hoc_agents=ad_hoc_agents,
+        )
 
     def _run_deep_research(
         self,
@@ -462,13 +435,10 @@ class Mediator:
     def analyze(self, problem: str) -> FinalAnalysis:
         aug = self._augmented_problem(problem)
 
-        if self.auto_select:
-            self._progress("Selecting relevant agents…")
-            with observability.span("auto-select"):
-                self._select_agents(aug)
-            self._progress(f"Agents selected: {', '.join(m.name for m in self.agents)}")
-        else:
-            pass  # agents already initialized in __init__
+        self._progress("Selecting relevant agents…")
+        with observability.span("auto-select"):
+            self._select_agents(aug)
+        self._progress(f"Agents selected: {', '.join(m.name for m in self.agents)}")
 
         # Create searcher once; uses agent_client for query generation
         if self.search:
@@ -533,8 +503,6 @@ class Mediator:
                 all_output_dicts = [o.model_dump() for o in pre_remapped_outputs]
                 system, user = build_synthesis_prompt(
                     aug, all_output_dicts,
-                    weights=self.weights,
-                    deactivated_agents=self.deactivated_agents,
                     global_sources=pre_global_sources,
                 )
                 try:
@@ -581,9 +549,7 @@ class Mediator:
             recommendations=remapped_synthesis["recommendations"],
             priority_flags=priority_flags,
             sources=global_sources,
-            deactivated_disclaimer=synthesis_result.get("deactivated_disclaimer", ""),
             selection_metadata=self.selection_metadata,
-            weights=self.weights,
             search_enabled=self.search,
             conflict_resolutions=conflict_resolutions,
             deep_research_enabled=self.deep_research,

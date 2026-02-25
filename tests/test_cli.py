@@ -4,28 +4,7 @@ import tempfile
 import pytest
 from unittest.mock import MagicMock, patch
 
-from src.llm.prompts import ALL_AGENT_NAMES
 from src.main import main
-
-
-class TestListAgents:
-    def test_list_agents_prints_names(self, capsys):
-        with patch("sys.argv", ["prog", "--list-agents"]):
-            with pytest.raises(SystemExit) as exc_info:
-                main()
-            assert exc_info.value.code == 0
-
-        output = capsys.readouterr().out
-        for name in ALL_AGENT_NAMES:
-            assert name in output
-
-    def test_list_agents_sorted(self, capsys):
-        with patch("sys.argv", ["prog", "--list-agents"]):
-            with pytest.raises(SystemExit):
-                main()
-
-        lines = capsys.readouterr().out.strip().splitlines()
-        assert lines == sorted(lines)
 
 
 class TestMainEntrypoint:
@@ -142,37 +121,6 @@ class TestMainEntrypoint:
                 main()
 
         mock_mediator.followup.assert_called_once_with(mock_result, "What about costs?")
-
-
-
-class TestAutoSelectFlag:
-    @patch("src.main.export_all")
-    @patch("src.main.Mediator")
-    @patch("src.main.ClaudeClient")
-    def test_auto_select_on_by_default(self, mock_client_cls, mock_mediator_cls, mock_export):
-        mock_result = MagicMock()
-        mock_result.agent_outputs = []
-        mock_mediator_cls.return_value.analyze.return_value = mock_result
-
-        with patch("sys.argv", ["prog", "test"]):
-            main()
-
-        _, kwargs = mock_mediator_cls.call_args
-        assert kwargs["auto_select"] is True
-
-    @patch("src.main.export_all")
-    @patch("src.main.Mediator")
-    @patch("src.main.ClaudeClient")
-    def test_no_auto_select_disables_it(self, mock_client_cls, mock_mediator_cls, mock_export):
-        mock_result = MagicMock()
-        mock_result.agent_outputs = []
-        mock_mediator_cls.return_value.analyze.return_value = mock_result
-
-        with patch("sys.argv", ["prog", "test", "--no-auto-select"]):
-            main()
-
-        _, kwargs = mock_mediator_cls.call_args
-        assert kwargs["auto_select"] is False
 
 
 class TestUserContext:
@@ -315,22 +263,3 @@ class TestProjectFlag:
         assert "What about costs?" in content
 
 
-class TestListAgentsExpanded:
-    def test_list_agents_shows_all_12(self, capsys):
-        with patch("sys.argv", ["prog", "--list-agents"]):
-            with pytest.raises(SystemExit) as exc_info:
-                main()
-            assert exc_info.value.code == 0
-
-        output = capsys.readouterr().out
-        for name in ALL_AGENT_NAMES:
-            assert name in output
-
-    def test_list_agents_no_markers(self, capsys):
-        with patch("sys.argv", ["prog", "--list-agents"]):
-            with pytest.raises(SystemExit):
-                main()
-
-        output = capsys.readouterr().out
-        assert "(default)" not in output
-        assert "(pool)" not in output

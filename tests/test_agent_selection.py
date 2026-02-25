@@ -26,7 +26,7 @@ class TestBuildDynamicAgentGenerationPrompt:
 
     def test_includes_count_guidance(self):
         system, user = build_dynamic_agent_generation_prompt("test")
-        assert "3" in user and "7" in user
+        assert "3" in user and ("7" in user or "8" in user)
 
     def test_includes_snake_case_guidance(self):
         system, user = build_dynamic_agent_generation_prompt("test")

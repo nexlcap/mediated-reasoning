@@ -2,13 +2,12 @@
 
 ## Project Summary
 
-CLI tool using multi-agent mediated reasoning to analyze complex problems from multiple perspectives. By default, an LLM pre-pass dynamically generates 3–7 bespoke specialist roles for each problem. A fixed pool of 12 named agents (market, tech, cost, legal, scalability, political, social, environmental, ethics, operational, strategy, risk) is available via `--no-auto-select` for deterministic testing or user-mandated role requirements. Uses a 3-round process: independent analysis, informed revision, synthesis.
+CLI tool using multi-agent mediated reasoning to analyze complex problems from multiple perspectives. An LLM pre-pass dynamically generates 3–7 bespoke specialist roles for each problem — this is the only agent-selection path. Uses a 3-round process: independent analysis, informed revision, synthesis.
 
 ## Architecture Conventions
 
-- **Per-agent class files are intentional.** `src/agents/market_agent.py`, `cost_agent.py`, etc. exist to give the fixed agent pool deterministic, inspectable class identities — required for reliable unit testing and `--no-auto-select` mode. Do NOT treat these as an architectural violation.
-- **`AGENT_REGISTRY`** in `src/agents/__init__.py` is the correct pattern for the fixed 12-agent pool. It must list all 12 agents.
-- **Dynamic agents** (auto-select mode) use `create_dynamic_agent` factory — no class file needed. The two patterns coexist intentionally.
+- **Dynamic agents only.** All agents are created by `create_dynamic_agent` factory from LLM-generated names and system prompts. There is no fixed agent pool.
+- **`AGENT_SYSTEM_PROMPTS`** in `src/llm/prompts.py` starts empty at import time and is populated at runtime by `create_dynamic_agent()`.
 - **Model tiering** (`agent_client` vs `client`) is a first-class feature. Never hardcode `agent_client = None` in the web UI; always expose an agent model selector.
 
 ## Key Commands
@@ -28,13 +27,13 @@ CLI tool using multi-agent mediated reasoning to analyze complex problems from m
 | 5 | Structured conflict extraction (objects, not free-text) | Done |
 | 6 | Follow-up / interactive mode (`--interactive`) | Done |
 | 7 | CLI argument tests | Done |
-| 8 | `--list-agents` flag | Done |
+| 8 | `--list-agents` flag | Removed — no fixed pool to list |
 | 9 | `--report` flag for detailed output | Done |
 | 10 | Sources/citations field | Done |
 | 11 | Langfuse integration (tracing, cost tracking) | Done |
 | 12 | `--customer-report` flag (client-facing, no internals) | Done |
 | 13 | Optional RACI matrix (`--raci`) for synthesis conflict resolution | Removed — hardcoded, rarely applicable |
-| 14 | Adaptive agent selection — pre-pass to activate only relevant agents | Done |
+| 14 | Adaptive agent selection — LLM pre-pass invents bespoke roles; fixed pool removed | Done |
 | 15 | Runtime re-delegation on failure — retry/redistribute failed agents | Open |
 | 16 | Per-agent trust scores — dynamic reliability tracking across runs | Open |
 | 17 | Web search pre-pass (Tavily) — grounded real citations, `--no-search` flag | Done |

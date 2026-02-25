@@ -61,6 +61,18 @@ Modules are dynamically generated per problem. For each run, an LLM pre-pass inv
 ### Dynamic Generation (default)
 
 `build_dynamic_agent_generation_prompt()` asks the LLM to design a bespoke panel of analysts from scratch, naming each with a snake_case identifier (e.g. `enterprise_sales_motion`, `b2b_pricing_strategy`) and writing a tailored system prompt. A gap-check pass then evaluates coverage and can add up to 3 more specialists.
+## Document/PDF Input (Item 29)
+
+To enhance the system's capability to analyze complex problems with structured documents such as market research reports, feasibility studies, or technical specifications, Fusio can integrate a feature that allows users to upload PDFs directly. This feature will enable agents to extract relevant data, insights, and context from the document without manual intervention.
+
+### Integration Steps
+
+- **Pre-processing:** Develop a script or use an existing tool to preprocess uploaded PDFs into structured text formats (e.g., plain text, JSON). The script should be capable of handling various file types, including scanned documents that need OCR.
+- **Agent Adaptation:** Modify the agent modules to include a document analysis capability. This could involve adding a preprocessing step where agents first understand and parse the uploaded document before proceeding with their analysis.
+- **User Interface:** Implement a user interface element in the Gradio web UI for uploading PDFs. Ensure that the upload feature is intuitive and accessible from the problem submission screen.
+- **Data Handling:** Store the uploaded documents securely within the system's file storage. When an agent is assigned to analyze a document, retrieve it from storage and pass its content to the agent for processing.
+- **Quality Assurance:** Integrate a quality assurance step to verify that agents are accurately interpreting and utilizing the information from the uploaded documents. This could involve human review or additional automated checks to ensure data integrity.
+
 
 **Example panel for "Should I pivot to B2B enterprise?":**
 - `enterprise_sales_motion` — Sales cycle length, champion vs. economic buyer dynamics, procurement process
@@ -68,35 +80,9 @@ Modules are dynamically generated per problem. For each run, an LLM pre-pass inv
 - `technical_integration_risk` — API compatibility, SSO/SCIM requirements, security review processes
 - `customer_success_ops` — Onboarding complexity, churn drivers, expansion revenue mechanics
 
-### Fixed Pool (used only with `--no-auto-select`)
-
-A fixed pool of 12 named agents is available when dynamic generation is explicitly disabled. Two legitimate reasons to use it:
-
-1. **Deterministic testing** — fixed agents produce stable, reproducible panels for CI, regression tests, and prompt evaluation. Test assertions remain reliable across runs.
-2. **User-mandated roles** — when a user explicitly requires certain specialist perspectives for every run regardless of problem domain (e.g. a compliance-heavy organisation that always needs `legal`, `ethics`, `political`).
-
-The 12 fixed agents, all defined in `src/llm/prompts.py`:
-
-| Name | Domain |
-|---|---|
-| `market` | Market size, competitive landscape, PMF, GTM |
-| `tech` | Stack, implementation complexity, technical risk |
-| `cost` | Investment, operating costs, revenue, break-even |
-| `legal` | Regulatory, compliance, liability, IP |
-| `scalability` | Growth, infrastructure, team, bottlenecks |
-| `political` | Policy, stability, geopolitics, public sector |
-| `social` | Demographics, public acceptance, equity, community |
-| `environmental` | Ecological footprint, climate risk, sustainability |
-| `ethics` | Fairness, bias, privacy, dual-use, accountability |
-| `operational` | Processes, HR, supply chain, org structure |
-| `strategy` | Business model, moats, positioning, partnerships |
-| `risk` | Uncertainty, downside scenarios, hedging, contingency |
-
-Run `--list-agents` to see the full list. All 12 are production-ready; `AGENT_SYSTEM_PROMPTS` in `src/llm/prompts.py` is the authoritative prompt configuration. A subset (market, cost, risk, legal, tech, scalability) also have class files in `src/agents/` for deterministic testing via `AGENT_REGISTRY`.
-
 ### Architecture Invariant
 
-Dynamic selection is the primary design goal. The fixed pool is a deliberate, maintained fallback — not a deprecated path. Both paths must remain functional. Changes to `AGENT_SYSTEM_PROMPTS` affect `--no-auto-select` runs and all tests that use fixed agents.
+Dynamic selection is the only agent-selection path. `AGENT_SYSTEM_PROMPTS` in `src/llm/prompts.py` starts empty at import time and is populated at runtime by `create_dynamic_agent()` for each LLM-generated specialist.
 
 ## Data Models
 
@@ -170,9 +156,7 @@ class FinalAnalysis(BaseModel):
     recommendations: List[str]
     priority_flags: List[str]           # Red/yellow/green flags
     sources: List[str]                  # Consolidated, URL-deduplicated citations; sources without URLs are dropped
-    deactivated_disclaimer: str         # Disclaimer when agents are deactivated via weight=0
-    selection_metadata: Optional[SelectionMetadata] # Populated when auto-select runs (always, unless --no-auto-select)
-    weights: Dict[str, float]           # Agent weights as passed to the mediator (empty = all defaults)
+    selection_metadata: Optional[SelectionMetadata] # Populated after agent selection (always set)
     search_enabled: bool                # Whether web search was active for this run (DuckDuckGo or Tavily)
     conflict_resolutions: List[ConflictResolution] # Populated when --deep-research is used
     deep_research_enabled: bool         # Whether the deep research round ran
@@ -227,7 +211,7 @@ class RunQuality(BaseModel):
     warnings: List[str]         # human-readable reasons for any deductions
 
 class SelectionMetadata(BaseModel):
-    auto_selected: bool         # True when dynamic panel generation ran (always unless --no-auto-select)
+    auto_selected: bool         # Always True (dynamic panel generation is the only mode)
     selected_agents: List[str] # Agent names generated by the LLM panel-generation pass
     selection_reasoning: str    # LLM's one-sentence explanation of panel composition logic
     gap_check_reasoning: str    # Gap check explanation
@@ -335,18 +319,16 @@ mediated-reasoning/
 | `--customer-report` | Generate a customer-facing report (no internal details) |
 | `--output` | Export reports to `output/` directory in all formats (.md, .json, .html) |
 | `--interactive` | Enter interactive follow-up mode after analysis |
-| `--list-agents` | List fixed fallback agents (used with `--no-auto-select`) and exit |
 | `--no-search` | Skip web search pre-pass; agents cite from training knowledge only |
 | `--deep-research` | After synthesis, run targeted web search on high/critical conflicts and red flags to produce evidence-based verdicts and updated recommendations |
 | `--model MODEL` | LiteLLM model string for synthesis, panel generation, gap-check, and PTC orchestration (default: `claude-sonnet-4-6`). Examples: `gpt-4o`, `ollama/llama3.3`, `together_ai/meta-llama/Llama-3-70b-chat-hf` |
 | `--agent-model MODEL` | LiteLLM model string for R1/R2 agent analysis calls (default: same as `--model`). Examples: `claude-haiku-4-5-20251001`, `gpt-4o-mini`, `ollama/phi4` |
 | `--run-label LABEL` | Tag this run for metrics comparison (e.g. `pre-ptc`, `ptc`). Defaults to the current git short hash |
 
-**Hidden escape hatches** (suppressed from `--help`, always-on by default):
+**Hidden escape hatch** (suppressed from `--help`, always-on by default):
 
 | Flag | Description |
 |------|-------------|
-| `--no-auto-select` | Disable dynamic panel generation; use fixed 3-agent fallback (market, cost, risk) |
 | `--no-repeat-prompt` | Disable prompt repetition for synthesis and panel-generation calls (on by default; arxiv 2512.14982) |
 
 ### Interactive Follow-up Mode (`--interactive`)
@@ -381,9 +363,6 @@ A single LLM call cannot adequately focus on multiple complex dimensions simulta
 
 ### Why general-purpose rather than domain-specific?
 The system originated from a specific use case (meeting agenda reasoning) but was deliberately broadened. The user explicitly chose a general-purpose, reusable architecture over a domain-specific tool — meeting agendas were "for the start" but the design should accommodate any multi-faceted problem.
-
-### Why these 3 default agents?
-The defaults (market, cost, risk) represent ground-truth factors any business must address and are used only when `--no-auto-select` is passed. In normal runs, the LLM generates a bespoke specialist panel, making the fixed defaults a rarely-used fallback rather than the primary path.
 
 ### Why 3 rounds?
 The 3-round structure maps to a natural deliberation pattern: (1) independent thinking, (2) revision after seeing others' perspectives, (3) final synthesis. This mirrors established methods like the Delphi technique. The number was proposed and accepted without debate.
@@ -633,7 +612,7 @@ The following features are inspired by *"Intelligent AI Delegation"* (Tomašev, 
 
 **Paper concept:** *Dynamic Assessment* — before delegating, the delegator evaluates which agents have relevant expertise for the task at hand, rather than broadcasting to everyone.
 
-**Implementation:** A two-step LLM pre-pass runs by default: (1) `build_dynamic_agent_generation_prompt()` asks the LLM to invent 3–7 specialist roles from scratch (no fixed pool consulted), each with a snake_case name and a tailored system prompt; (2) a gap-check pass evaluates coverage and can add up to 3 more specialists. All generated agents are instantiated via `create_dynamic_agent()`. Disable with `--no-auto-select` to use the 3 fixed fallback agents (market, cost, risk). Falls back to defaults if the pre-pass fails.
+**Implementation:** A two-step LLM pre-pass runs on every analysis: (1) `build_dynamic_agent_generation_prompt()` asks the LLM to invent 3–7 specialist roles from scratch, each with a snake_case name and a tailored system prompt; (2) a gap-check pass evaluates coverage and can add up to 3 more specialists. All generated agents are instantiated via `create_dynamic_agent()`.
 
 ### Why dynamic generation instead of fixed pool selection?
 

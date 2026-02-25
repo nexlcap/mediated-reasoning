@@ -7,7 +7,6 @@ from typing import List, Optional
 from dotenv import load_dotenv
 
 from src.llm.client import ClaudeClient, DEFAULT_MODEL
-from src.llm.prompts import ALL_AGENT_NAMES
 from src.mediator import Mediator
 from src.project_memory import ProjectMemory, QAPair
 from src.utils.exporters import export_all
@@ -43,20 +42,13 @@ def main():
     parser.add_argument("--customer-report", action="store_true", help="Generate a customer-facing report (no internal details)")
     parser.add_argument("--output", action="store_true", help="Export reports to output/ directory (.md, .json, .html)")
     parser.add_argument("--interactive", action="store_true", help="Enter interactive follow-up mode after analysis")
-    parser.add_argument("--list-agents", action="store_true", help="List fixed fallback agents and exit")
     parser.add_argument("--no-search", action="store_true", help="Skip web search pre-pass (disables grounded source fetching via Tavily)")
     parser.add_argument("--deep-research", action="store_true", help="After synthesis, run targeted web search on high/critical conflicts and red flags to produce evidence-based verdicts and updated recommendations")
     parser.add_argument("--project", default="", metavar="PATH", help="Path to project memory directory (brief.md + session logs). Created on first use.")
     parser.add_argument("--run-label", default="", help="Tag for metrics comparison (e.g. 'pre-ptc', 'ptc'). Defaults to git short hash.")
-    # Hidden escape hatches (always-on by default)
-    parser.add_argument("--no-auto-select", action="store_true", help=argparse.SUPPRESS)
+    # Hidden escape hatch
     parser.add_argument("--no-repeat-prompt", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
-
-    if args.list_agents:
-        for name in ALL_AGENT_NAMES:
-            print(name)
-        sys.exit(0)
 
     problem = args.problem
     if not problem:
@@ -68,8 +60,6 @@ def main():
 
     if args.verbose:
         os.environ["MEDIATED_REASONING_DEBUG"] = "1"
-
-    auto_select = not args.no_auto_select
 
     user_context = args.context.strip()
     if not user_context and args.context_file:
@@ -91,7 +81,7 @@ def main():
 
     client = ClaudeClient(model=args.model)
     agent_client = ClaudeClient(model=args.agent_model, max_tokens=2048) if args.agent_model else None
-    mediator = Mediator(client, auto_select=auto_select, search=not args.no_search, deep_research=args.deep_research, agent_client=agent_client, repeat_prompt=not args.no_repeat_prompt, user_context=user_context or None)
+    mediator = Mediator(client, search=not args.no_search, deep_research=args.deep_research, agent_client=agent_client, repeat_prompt=not args.no_repeat_prompt, user_context=user_context or None)
 
     print(f"\nAnalyzing: {problem}\n")
     if user_context:
@@ -99,11 +89,10 @@ def main():
     print("Running adaptive agent selection + 3-round mediated reasoning...")
     print("This may take a few minutes.\n")
 
-    agent_names = [] if auto_select else [m.name for m in mediator.agents]
     with observability.trace(
         "mediated-reasoning",
         input=problem,
-        metadata={"run_label": args.run_label, "model": args.model, "agents": agent_names},
+        metadata={"run_label": args.run_label, "model": args.model},
     ):
         result = mediator.analyze(problem)
     result.run_label = args.run_label or _git_short_hash()

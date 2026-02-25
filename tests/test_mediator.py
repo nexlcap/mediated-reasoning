@@ -4,12 +4,26 @@ from unittest.mock import MagicMock, patch
 from src.llm.client import ClaudeClient
 from src.mediator import Mediator
 from src.models.schemas import FinalAnalysis, AgentOutput, TokenUsage
+from src.agents.base_agent import create_dynamic_agent
 from tests.conftest import SAMPLE_LLM_RESPONSE, SAMPLE_SYNTHESIS_RESPONSE, _fake_ptc_round
 
-SAMPLE_SYNTHESIS_WITH_DISCLAIMER = {
-    **SAMPLE_SYNTHESIS_RESPONSE,
-    "deactivated_disclaimer": "The cost agent was deactivated and its perspective is not reflected.",
-}
+# --- Helpers ------------------------------------------------------------------
+
+_FAKE_AGENT_NAMES = ["market", "cost", "risk", "tech", "legal", "scalability"]
+_FAKE_CLIENT = MagicMock(spec=ClaudeClient)
+
+
+def _make_fake_agents():
+    return [
+        create_dynamic_agent(n, f"You are {n}. Respond with ONLY valid JSON, no other text.", _FAKE_CLIENT)
+        for n in _FAKE_AGENT_NAMES
+    ]
+
+
+def _fake_select_agents(self, problem):
+    """Stub _select_agents: inject 6 named dynamic agents without making LLM calls."""
+    self.agents = _make_fake_agents()
+    self.selection_metadata = None
 
 
 def _make_ptc_client(synthesis_response=None):
@@ -26,7 +40,59 @@ def _make_ptc_client(synthesis_response=None):
     return client
 
 
+# --- Test data for dynamic-selection tests ------------------------------------
+
+SAMPLE_GENERATION_RESPONSE = {
+    "agents": [
+        {"name": "market_dynamics", "system_prompt": "You are a market dynamics expert. Respond with ONLY valid JSON, no other text."},
+        {"name": "technical_feasibility", "system_prompt": "You are a technical feasibility expert. Respond with ONLY valid JSON, no other text."},
+        {"name": "unit_economics", "system_prompt": "You are a unit economics expert. Respond with ONLY valid JSON, no other text."},
+    ],
+    "reasoning": "These three cover demand, technical, and financial dimensions.",
+}
+
+SAMPLE_GAP_CHECK_NO_GAPS = {
+    "gaps_identified": False,
+    "reasoning": "Coverage is sufficient.",
+    "ad_hoc_agents": [],
+}
+
+SAMPLE_GAP_CHECK_WITH_ADHOC = {
+    "gaps_identified": True,
+    "reasoning": "Missing cultural perspective.",
+    "ad_hoc_agents": [
+        {"name": "cultural", "system_prompt": "You are a cultural expert. Respond with ONLY valid JSON."},
+    ],
+}
+
+SAMPLE_GAP_CHECK_5_ADHOC = {
+    "gaps_identified": True,
+    "reasoning": "Many gaps.",
+    "ad_hoc_agents": [
+        {"name": f"adhoc{i}", "system_prompt": f"Expert {i}. Respond with ONLY valid JSON."}
+        for i in range(5)
+    ],
+}
+
+SAMPLE_GENERATION_MALFORMED = {
+    "agents": [
+        {"name": "market_dynamics", "system_prompt": "You are a market dynamics expert. Respond with ONLY valid JSON, no other text."},
+        {"name": "", "system_prompt": "Missing name — should be skipped"},
+        {"system_prompt": "No name key at all — should be skipped"},
+    ],
+    "reasoning": "Mixed valid/malformed.",
+}
+
+
+# --- TestMediator (core behaviour, _select_agents stubbed out) ----------------
+
 class TestMediator:
+    @pytest.fixture(autouse=True)
+    def patch_select_agents(self):
+        """Bypass LLM-based agent selection for all TestMediator tests."""
+        with patch.object(Mediator, '_select_agents', _fake_select_agents):
+            yield
+
     @pytest.fixture
     def mediator_client(self):
         return _make_ptc_client()
@@ -143,108 +209,7 @@ class TestMediator:
             assert output.sources == []
 
 
-class TestMediatorWeights:
-    def test_weight_zero_deactivates_agent(self, sample_problem):
-        client = _make_ptc_client(synthesis_response=SAMPLE_SYNTHESIS_WITH_DISCLAIMER)
-
-        mediator = Mediator(client, weights={"cost": 0})
-        result = mediator.analyze(sample_problem)
-
-        # run_ptc_round called for R1 + R2; analyze called for synthesis only
-        assert client.run_ptc_round.call_count == 2
-        assert client.analyze.call_count == 1
-        agent_names = {o.agent_name for o in result.agent_outputs}
-        assert "cost" not in agent_names
-        assert len(agent_names) == 5
-
-    def test_deactivated_agents_tracked(self):
-        client = _make_ptc_client()
-        mediator = Mediator(client, weights={"cost": 0, "risk": 0})
-        assert set(mediator.deactivated_agents) == {"cost", "risk"}
-        assert len(mediator.agents) == 4
-
-    def test_weight_nonzero_keeps_agent(self):
-        client = _make_ptc_client()
-        mediator = Mediator(client, weights={"risk": 2})
-        assert mediator.deactivated_agents == []
-        assert len(mediator.agents) == 6
-
-    def test_disclaimer_passed_through(self, sample_problem):
-        client = _make_ptc_client(synthesis_response=SAMPLE_SYNTHESIS_WITH_DISCLAIMER)
-
-        mediator = Mediator(client, weights={"cost": 0})
-        result = mediator.analyze(sample_problem)
-
-        assert "cost" in result.deactivated_disclaimer.lower()
-
-    def test_no_disclaimer_without_deactivation(self, sample_problem):
-        client = _make_ptc_client()
-
-        mediator = Mediator(client, weights={"risk": 2})
-        result = mediator.analyze(sample_problem)
-
-        assert result.deactivated_disclaimer == ""
-
-    def test_weights_passed_to_synthesis_prompt(self, sample_problem):
-        client = _make_ptc_client(synthesis_response=SAMPLE_SYNTHESIS_WITH_DISCLAIMER)
-
-        mediator = Mediator(client, weights={"cost": 0, "risk": 2})
-        with patch("src.mediator.build_synthesis_prompt", wraps=__import__("src.llm.prompts", fromlist=["build_synthesis_prompt"]).build_synthesis_prompt) as mock_prompt:
-            mediator.analyze(sample_problem)
-            _, kwargs = mock_prompt.call_args
-            assert kwargs["weights"] == {"cost": 0, "risk": 2}
-            assert kwargs["deactivated_agents"] == ["cost"]
-
-    def test_default_no_weights(self):
-        client = _make_ptc_client()
-        mediator = Mediator(client)
-        assert mediator.weights == {}
-        assert mediator.deactivated_agents == []
-        assert len(mediator.agents) == 6
-
-
-
-SAMPLE_GENERATION_RESPONSE = {
-    "agents": [
-        {"name": "market_dynamics", "system_prompt": "You are a market dynamics expert. Respond with ONLY valid JSON, no other text."},
-        {"name": "technical_feasibility", "system_prompt": "You are a technical feasibility expert. Respond with ONLY valid JSON, no other text."},
-        {"name": "unit_economics", "system_prompt": "You are a unit economics expert. Respond with ONLY valid JSON, no other text."},
-    ],
-    "reasoning": "These three cover demand, technical, and financial dimensions.",
-}
-
-SAMPLE_GAP_CHECK_NO_GAPS = {
-    "gaps_identified": False,
-    "reasoning": "Coverage is sufficient.",
-    "ad_hoc_agents": [],
-}
-
-SAMPLE_GAP_CHECK_WITH_ADHOC = {
-    "gaps_identified": True,
-    "reasoning": "Missing cultural perspective.",
-    "ad_hoc_agents": [
-        {"name": "cultural", "system_prompt": "You are a cultural expert. Respond with ONLY valid JSON."},
-    ],
-}
-
-SAMPLE_GAP_CHECK_5_ADHOC = {
-    "gaps_identified": True,
-    "reasoning": "Many gaps.",
-    "ad_hoc_agents": [
-        {"name": f"adhoc{i}", "system_prompt": f"Expert {i}. Respond with ONLY valid JSON."}
-        for i in range(5)
-    ],
-}
-
-SAMPLE_GENERATION_MALFORMED = {
-    "agents": [
-        {"name": "market_dynamics", "system_prompt": "You are a market dynamics expert. Respond with ONLY valid JSON, no other text."},
-        {"name": "", "system_prompt": "Missing name — should be skipped"},
-        {"system_prompt": "No name key at all — should be skipped"},
-    ],
-    "reasoning": "Mixed valid/malformed.",
-}
-
+# --- TestMediatorAutoSelect (tests the real _select_agents LLM pre-pass) -----
 
 class TestMediatorAutoSelect:
     def test_auto_select_calls_selection_and_gap_check(self, sample_problem):
@@ -258,7 +223,7 @@ class TestMediatorAutoSelect:
         ]
         client.run_ptc_round.side_effect = _fake_ptc_round
 
-        mediator = Mediator(client, auto_select=True)
+        mediator = Mediator(client)
         result = mediator.analyze(sample_problem)
 
         assert client.analyze.call_count == 3   # selection + gap check + synthesis
@@ -266,25 +231,6 @@ class TestMediatorAutoSelect:
         assert isinstance(result, FinalAnalysis)
         assert result.selection_metadata is not None
         assert result.selection_metadata.auto_selected is True
-
-    def test_auto_select_with_weight_zero_deactivates(self, sample_problem):
-        """Weight=0 vetoes an auto-selected agent."""
-        client = MagicMock(spec=ClaudeClient)
-        client.token_usage.return_value = TokenUsage()
-        client.analyze.side_effect = [
-            SAMPLE_GENERATION_RESPONSE,
-            SAMPLE_GAP_CHECK_NO_GAPS,
-            SAMPLE_SYNTHESIS_RESPONSE,
-        ]
-        client.run_ptc_round.side_effect = _fake_ptc_round
-
-        mediator = Mediator(client, weights={"unit_economics": 0}, auto_select=True)
-        result = mediator.analyze(sample_problem)
-
-        assert client.analyze.call_count == 3
-        assert client.run_ptc_round.call_count == 2
-        agent_names = {o.agent_name for o in result.agent_outputs}
-        assert "unit_economics" not in agent_names
 
     def test_auto_select_no_gaps(self, sample_problem):
         """Gap check returns empty, no ad-hoc agents created."""
@@ -297,7 +243,7 @@ class TestMediatorAutoSelect:
         ]
         client.run_ptc_round.side_effect = _fake_ptc_round
 
-        mediator = Mediator(client, auto_select=True)
+        mediator = Mediator(client)
         result = mediator.analyze(sample_problem)
 
         assert result.selection_metadata.ad_hoc_agents == []
@@ -313,7 +259,7 @@ class TestMediatorAutoSelect:
         ]
         client.run_ptc_round.side_effect = _fake_ptc_round
 
-        mediator = Mediator(client, auto_select=True)
+        mediator = Mediator(client)
         result = mediator.analyze(sample_problem)
 
         assert len(result.selection_metadata.ad_hoc_agents) == 3
@@ -329,24 +275,13 @@ class TestMediatorAutoSelect:
         ]
         client.run_ptc_round.side_effect = _fake_ptc_round
 
-        mediator = Mediator(client, auto_select=True)
+        mediator = Mediator(client)
         result = mediator.analyze(sample_problem)
 
         agent_names = {o.agent_name for o in result.agent_outputs}
         assert "market_dynamics" in agent_names
         # Empty-name and no-name entries should not appear
         assert "" not in agent_names
-
-    def test_default_mode_unaffected(self, sample_problem):
-        """Without --auto-select, analyze only called for synthesis."""
-        client = _make_ptc_client()
-
-        mediator = Mediator(client)
-        result = mediator.analyze(sample_problem)
-
-        assert client.run_ptc_round.call_count == 2
-        assert client.analyze.call_count == 1
-        assert result.selection_metadata is None
 
     def test_selection_metadata_in_final_analysis(self, sample_problem):
         """Metadata is populated correctly in the result."""
@@ -359,7 +294,7 @@ class TestMediatorAutoSelect:
         ]
         client.run_ptc_round.side_effect = _fake_ptc_round
 
-        mediator = Mediator(client, auto_select=True)
+        mediator = Mediator(client)
         result = mediator.analyze(sample_problem)
 
         meta = result.selection_metadata
@@ -371,23 +306,15 @@ class TestMediatorAutoSelect:
         assert len(meta.ad_hoc_agents) == 1
         assert meta.ad_hoc_agents[0].name == "cultural"
 
-    def test_auto_select_fallback_on_failure(self, sample_problem):
-        """If selection LLM call fails, fall back to 3 default agents."""
-        client = MagicMock(spec=ClaudeClient)
-        client.token_usage.return_value = TokenUsage()
-        client.analyze.side_effect = [Exception("API error"), SAMPLE_SYNTHESIS_RESPONSE]
-        client.run_ptc_round.side_effect = _fake_ptc_round
 
-        mediator = Mediator(client, auto_select=True)
-        result = mediator.analyze(sample_problem)
-
-        # 1 failed selection + 1 synthesis = 2 analyze calls
-        assert client.analyze.call_count == 2
-        assert len(result.agent_outputs) == 12
-        assert result.selection_metadata is None
-
+# --- TestMediatorUserContext --------------------------------------------------
 
 class TestMediatorUserContext:
+    @pytest.fixture(autouse=True)
+    def patch_select_agents(self):
+        with patch.object(Mediator, '_select_agents', _fake_select_agents):
+            yield
+
     def test_no_context_passes_problem_unchanged(self, sample_problem):
         client = _make_ptc_client()
         mediator = Mediator(client)

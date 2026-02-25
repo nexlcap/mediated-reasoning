@@ -6,7 +6,6 @@ if TYPE_CHECKING:
 
 def _format_round1_outputs(
     round1_outputs: List[Dict],
-    weights: Optional[Dict[str, float]] = None,
     brief: bool = False,
 ) -> str:
     """Serialise Round 1 outputs for inclusion in prompts.
@@ -17,11 +16,7 @@ def _format_round1_outputs(
     sections = []
     for output in round1_outputs:
         name = output['agent_name']
-        weight = (weights or {}).get(name, 1)
-        header = f"--- {name.upper()} AGENT"
-        if weight != 1:
-            header += f" (Weight: {weight}x)"
-        header += " ---"
+        header = f"--- {name.upper()} AGENT ---"
         if brief:
             summary = output.get('analysis', {}).get('summary', '')
             sections.append(
@@ -39,98 +34,8 @@ def _format_round1_outputs(
 
 
 # --- System prompts per agent ---
-
-AGENT_SYSTEM_PROMPTS = {
-    "market": (
-        "You are a market analysis expert. Evaluate the given problem/idea from a "
-        "market perspective: market size, competitive landscape, customer demand, "
-        "product-market fit, and go-to-market strategy. "
-        "Respond with ONLY valid JSON, no other text."
-    ),
-    "tech": (
-        "You are a technical feasibility expert. Evaluate the given problem/idea from a "
-        "technical perspective: technology stack, implementation complexity, development "
-        "timeline, technical risks, and dependencies. "
-        "Respond with ONLY valid JSON, no other text."
-    ),
-    "cost": (
-        "You are a financial analysis expert. Evaluate the given problem/idea from a "
-        "financial perspective: initial investment, operating costs, revenue projections, "
-        "break-even analysis, and funding requirements. "
-        "Respond with ONLY valid JSON, no other text."
-    ),
-    "legal": (
-        "You are a legal and compliance expert. Evaluate the given problem/idea from a "
-        "legal perspective: regulatory requirements, legal risks, compliance needs, "
-        "liability concerns, and intellectual property considerations. "
-        "Respond with ONLY valid JSON, no other text."
-    ),
-    "scalability": (
-        "You are a scalability and growth expert. Evaluate the given problem/idea from a "
-        "scaling perspective: growth potential, infrastructure scaling, team scaling, "
-        "operational complexity at scale, and bottlenecks. "
-        "Respond with ONLY valid JSON, no other text."
-    ),
-    "political": (
-        "You are a political and regulatory environment expert. Evaluate the given problem/idea from a "
-        "political perspective: government policy, political stability, institutional readiness, "
-        "geopolitical factors, and public-sector dynamics. "
-        "Respond with ONLY valid JSON, no other text."
-    ),
-    "social": (
-        "You are a social impact and demographics expert. Evaluate the given problem/idea from a "
-        "societal perspective: societal impact, demographic trends, public acceptance, "
-        "equity and inclusion, and community impact. "
-        "Respond with ONLY valid JSON, no other text."
-    ),
-    "environmental": (
-        "You are an environmental and sustainability expert. Evaluate the given problem/idea from an "
-        "ecological perspective: ecological footprint, climate risk, resource consumption, "
-        "sustainability practices, and environmental regulations. "
-        "Respond with ONLY valid JSON, no other text."
-    ),
-    "ethics": (
-        "You are an ethics and responsible innovation expert. Evaluate the given problem/idea from an "
-        "ethical perspective: fairness, bias, privacy, rights, dual-use concerns, "
-        "transparency, and accountability. "
-        "Respond with ONLY valid JSON, no other text."
-    ),
-    "operational": (
-        "You are an operations and organizational expert. Evaluate the given problem/idea from an "
-        "operational perspective: internal processes, team and HR considerations, supply chain, "
-        "organizational structure, and change management. "
-        "Respond with ONLY valid JSON, no other text."
-    ),
-    "strategy": (
-        "You are a business strategy expert. Evaluate the given problem/idea from a "
-        "strategic perspective: business model, value proposition, competitive moats, "
-        "market positioning, and partnership opportunities. "
-        "Respond with ONLY valid JSON, no other text."
-    ),
-    "risk": (
-        "You are a risk analysis expert. Evaluate the given problem/idea from a "
-        "risk perspective: uncertainty assessment, downside scenarios, threat categorization, "
-        "hedging strategies, and contingency planning. "
-        "Respond with ONLY valid JSON, no other text."
-    ),
-}
-
-ALL_AGENT_NAMES = sorted(AGENT_SYSTEM_PROMPTS.keys())
-
-AGENT_DESCRIPTIONS = {
-    "market": "Market size, competitive landscape, customer demand, product-market fit",
-    "tech": "Technology stack, implementation complexity, technical risks, dependencies",
-    "cost": "Financial analysis, investment, operating costs, revenue projections, break-even",
-    "legal": "Regulatory requirements, legal risks, compliance, liability, IP",
-    "scalability": "Growth potential, infrastructure scaling, team scaling, bottlenecks",
-    "political": "Government policy, political stability, institutional readiness, geopolitics",
-    "social": "Societal impact, demographics, public acceptance, equity, community impact",
-    "environmental": "Ecological footprint, climate risk, resource consumption, sustainability",
-    "ethics": "Fairness, bias, privacy, rights, dual-use, transparency, accountability",
-    "operational": "Internal processes, team/HR, supply chain, org structure, change management",
-    "strategy": "Business model, value proposition, competitive moats, positioning, partnerships",
-    "risk": "Uncertainty, downside scenarios, threat categorization, hedging, contingency",
-}
+# Populated at runtime by create_dynamic_agent(); empty at import time.
+AGENT_SYSTEM_PROMPTS: dict = {}
 
 
 def _agent_json_instruction(has_search_context: bool) -> str:
@@ -226,8 +131,6 @@ def build_round2_prompt(
 def build_synthesis_prompt(
     problem: str,
     all_outputs: List[Dict],
-    weights: Optional[Dict[str, float]] = None,
-    deactivated_agents: Optional[List[str]] = None,
     search_context=None,
     global_sources: Optional[List[str]] = None,
 ) -> tuple[str, str]:
@@ -237,30 +140,6 @@ def build_synthesis_prompt(
         "actionable recommendations. "
         "Respond with ONLY valid JSON, no other text."
     )
-
-    weight_instruction = ""
-    if weights:
-        active_weights = {k: v for k, v in weights.items() if v != 0}
-        if active_weights:
-            weight_instruction = (
-                "\n\nAgents with higher weights should carry proportionally more "
-                "influence in your synthesis and recommendations."
-            )
-
-    deactivated_instruction = ""
-    deactivated_field = ""
-    if deactivated_agents:
-        names = ", ".join(deactivated_agents)
-        deactivated_instruction = (
-            f"\n\nIMPORTANT: The following agents were deactivated by the user: {names}. "
-            "You MUST include a disclaimer in your synthesis AND in the dedicated "
-            '"deactivated_disclaimer" field stating which agents were deactivated '
-            "and that their perspectives are not reflected in this analysis."
-        )
-        deactivated_field = (
-            '  "deactivated_disclaimer": "Disclaimer noting which agents were '
-            'deactivated and that their analysis is absent",\n'
-        )
 
     search_section = ""
     if search_context:
@@ -304,11 +183,10 @@ def build_synthesis_prompt(
     user = (
         f"Original problem:\n{problem}\n\n"
         f"All agent analyses (Rounds 1 and 2):\n\n"
-        f"{_format_round1_outputs(all_outputs, weights=weights)}\n\n"
+        f"{_format_round1_outputs(all_outputs)}\n\n"
         f"{search_section}"
         f"{source_list_section}"
         "Synthesize these analyses into a final assessment.\n\n"
-        f"{weight_instruction}{deactivated_instruction}\n\n"
         "CONFLICT ARBITRATION: For each conflict, set \"arbitration.authority\" to the agent "
         "whose core domain makes it the most credible voice on that specific topic (e.g. cost "
         "owns financial estimates, tech owns implementation feasibility, legal owns compliance). "
@@ -316,7 +194,6 @@ def build_synthesis_prompt(
         "synthesis but does not silence the other agent's findings.\n\n"
         "Return your response as a JSON object with exactly these fields:\n"
         '{\n'
-        f'{deactivated_field}'
         '  "conflicts": [\n'
         '    {"agents": ["market", "cost"], "topic": "burn rate", '
         '"description": "Market sees high demand but cost flags high burn rate [1][2]", '
@@ -406,8 +283,16 @@ def build_dynamic_agent_generation_prompt(problem: str) -> tuple[str, str]:
     )
     user = (
         f"Problem to analyze:\n{problem}\n\n"
-        "Design a panel of 3-7 specialist analysts for this problem. Each specialist "
+        "Design a panel of 3-8 specialist analysts for this problem. Each specialist "
         "must be unique and non-overlapping.\n\n"
+        "IMPORTANT — two-pass composition rule:\n"
+        "1. EXPLICIT first: if the problem explicitly calls out specific aspects to consider "
+        "(e.g. 'consider environmental impact', 'focus on legal risks', 'think about team dynamics'), "
+        "those aspects MUST each have a dedicated specialist. Lock these in first.\n"
+        "2. CORE second: fill remaining slots (up to the 3-8 total) with the most analytically "
+        "valuable perspectives for the core question — do NOT displace a core perspective "
+        "(e.g. market fit, financial viability, technical feasibility) just to accommodate "
+        "an explicitly requested one. Add it on top instead.\n\n"
         "Name each specialist using a short snake_case identifier (e.g. 'enterprise_sales_motion', "
         "'b2b_pricing_strategy'). The identifier becomes the agent's label in the final report.\n\n"
         "For each specialist, write a system prompt that:\n"
@@ -425,31 +310,6 @@ def build_dynamic_agent_generation_prompt(problem: str) -> tuple[str, str]:
     )
     return system, user
 
-
-def build_agent_selection_prompt(problem: str) -> tuple[str, str]:
-    system = (
-        "You are an expert at scoping multi-perspective analyses. "
-        "Given a problem, you select which analysis agents are relevant. "
-        "Respond with ONLY valid JSON, no other text."
-    )
-
-    agent_list = "\n".join(
-        f"- {name}: {AGENT_DESCRIPTIONS[name]}"
-        for name in ALL_AGENT_NAMES
-    )
-
-    user = (
-        f"Problem to analyze:\n{problem}\n\n"
-        f"Available analysis agents:\n{agent_list}\n\n"
-        "Select 3-7 agents that are most relevant to this problem. "
-        "Only include agents whose perspective adds meaningful value.\n\n"
-        "Return your response as a JSON object with exactly these fields:\n"
-        '{\n'
-        '  "selected_agents": ["agent1", "agent2", ...],\n'
-        '  "reasoning": "Brief explanation of why these agents were selected"\n'
-        '}'
-    )
-    return system, user
 
 
 def build_gap_check_prompt(
