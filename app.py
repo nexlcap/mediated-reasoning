@@ -394,7 +394,7 @@ def save_project_session(
 # ── Analysis ──────────────────────────────────────────────────────────────────
 def run_analysis(
     problem, model, agent_model, api_key,
-    auto_select, no_search, deep_research,
+    no_search, deep_research,
     repeat_prompt, tavily_key, user_context,
     project_memory, brief_text,
 ):
@@ -431,8 +431,7 @@ def run_analysis(
     client       = ClaudeClient(model=model, api_key=key)
     agent_client = ClaudeClient(model=agent_model, api_key=key) if agent_model != model else None
     mediator     = Mediator(
-        client, weights={},
-        auto_select=auto_select, search=not no_search,
+        client, search=not no_search,
         deep_research=deep_research, agent_client=agent_client,
         repeat_prompt=repeat_prompt,
         tavily_api_key=(tavily_key or "").strip() or None,
@@ -570,7 +569,6 @@ with gr.Blocks(title="Fusen") as demo:
             agent_model_dd = gr.Dropdown(
                 choices=MODELS, value=MODELS[0], label="Agent model", elem_id="agent-model-dd",
             )
-            auto_cb   = gr.Checkbox(label="Auto-select agents", value=True,  elem_id="auto-cb")
             search_cb = gr.Checkbox(label="Skip web search",     value=False, elem_id="search-cb")
             deep_cb   = gr.Checkbox(label="Deep research",       value=True,  elem_id="deep-cb")
             repeat_cb = gr.Checkbox(label="Repeat prompt",       value=True,  elem_id="repeat-cb")
@@ -654,7 +652,7 @@ with gr.Blocks(title="Fusen") as demo:
         fn=run_analysis,
         inputs=[
             problem_input, model_dd, agent_model_dd, api_key_input,
-            auto_cb, search_cb, deep_cb,
+            search_cb, deep_cb,
             repeat_cb, tavily_input, context_input,
             project_mem_state, brief_area,
         ],

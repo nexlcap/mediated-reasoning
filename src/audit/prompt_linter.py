@@ -55,7 +55,7 @@ def lint() -> List[str]:
     # --- Layer 1b: build_synthesis_prompt ---
 
     # Without global_sources → synthesis may cite normally
-    _, user_no_global = build_synthesis_prompt("test problem", [], None, None, None, None)
+    _, user_no_global = build_synthesis_prompt("test problem", [])
     check(
         "sources" in user_no_global.lower(),
         "build_synthesis_prompt (no global_sources) missing sources field",
@@ -63,7 +63,7 @@ def lint() -> List[str]:
 
     # With global_sources → must inject list and forbid new sources
     _, user_with_global = build_synthesis_prompt(
-        "test problem", [], None, None, None,
+        "test problem", [],
         global_sources=["Source One — https://example.com/1"],
     )
     check(
@@ -106,7 +106,7 @@ def lint() -> List[str]:
     check('"reasoning"' in gen_user, "build_dynamic_agent_generation_prompt: missing 'reasoning' field")
     check("snake_case" in gen_user, "build_dynamic_agent_generation_prompt: missing snake_case name guidance")
     check("Respond with ONLY valid JSON" in gen_user, "build_dynamic_agent_generation_prompt: missing JSON constraint for generated system prompts")
-    check("3" in gen_user and "7" in gen_user, "build_dynamic_agent_generation_prompt: missing 3-7 count guidance")
+    check("3" in gen_user and ("7" in gen_user or "8" in gen_user), "build_dynamic_agent_generation_prompt: missing count range guidance")
 
     sample_agents = [{"name": "enterprise_sales", "system_prompt": "You are an enterprise sales expert. Respond with ONLY valid JSON, no other text."}]
     _, gap_user = build_gap_check_prompt("B2B pivot", sample_agents)
