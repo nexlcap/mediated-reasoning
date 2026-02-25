@@ -16,6 +16,7 @@ import gradio as gr
 from src.llm.client import ClaudeClient
 from src.mediator import Mediator
 from src.project_memory import ProjectMemory, QAPair
+from src.utils.document_loader import load_document, DocumentLoadError
 from src.utils.formatters import (
     format_core_md,
     format_detail_md,
@@ -397,6 +398,7 @@ def run_analysis(
     no_search, deep_research,
     repeat_prompt, tavily_key, user_context,
     project_memory, brief_text,
+    document_path=None,
 ):
     # 10 outputs: status_html · core_out · right_detail_md · right_stats_md
     #             status_group · results_group · follow_qa_md
@@ -416,6 +418,13 @@ def run_analysis(
         yield _error("Please enter a problem."); return
     if not api_key.strip():
         yield _error("Please enter your API key."); return
+
+    document_context = None
+    if document_path:
+        try:
+            document_context = load_document(document_path)
+        except DocumentLoadError as e:
+            yield _error(f"Document error: {e}"); return
 
     effective_context = (user_context or "").strip()
     if project_memory is not None and brief_text and brief_text.strip():
@@ -437,6 +446,7 @@ def run_analysis(
         tavily_api_key=(tavily_key or "").strip() or None,
         on_progress=on_progress,
         user_context=effective_context or None,
+        document_context=document_context,
     )
 
     def run():
@@ -591,6 +601,11 @@ with gr.Blocks(title="Fusen") as demo:
         placeholder="Describe the problem or idea you want to analyse — e.g. Should I build a B2B SaaS for restaurant inventory management?",
         lines=4, elem_id="problem",
     )
+    document_upload = gr.File(
+        label="Ground in a document (optional — PDF, TXT, MD)",
+        file_types=[".pdf", ".txt", ".md", ".rst"],
+        type="filepath",
+    )
     submit_btn = gr.Button("Analyze", variant="primary", size="lg",
                            elem_classes=["analyze-btn"], elem_id="analyze-btn")
 
@@ -655,6 +670,7 @@ with gr.Blocks(title="Fusen") as demo:
             search_cb, deep_cb,
             repeat_cb, tavily_input, context_input,
             project_mem_state, brief_area,
+            document_upload,
         ],
         outputs=[
             status_html, core_out, right_detail_md, right_stats_md,

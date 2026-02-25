@@ -8,6 +8,19 @@ class SearchResult(BaseModel):
     content: str
 
 
+class DocumentContext(BaseModel):
+    """Extracted text content from an uploaded document."""
+
+    filename: str
+    content: str  # extracted plain text
+    page_count: Optional[int] = None
+    extraction_method: str = "text"  # "text" | "ocr"
+    char_count: int = 0
+
+    def model_post_init(self, __context: Any) -> None:
+        self.char_count = len(self.content)
+
+
 class SearchContext(BaseModel):
     queries: List[str]
     results: List[SearchResult]

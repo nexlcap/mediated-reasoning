@@ -226,6 +226,7 @@ class Mediator:
         tavily_api_key: Optional[str] = None,
         on_progress=None,
         user_context: Optional[str] = None,
+        document_context=None,
     ):
         self.client = client                              # synthesis + auto-select + gap-check
         self.agent_client = agent_client or client     # agent analysis + search queries
@@ -235,6 +236,7 @@ class Mediator:
         self.tavily_api_key = tavily_api_key
         self._on_progress = on_progress
         self.user_context = (user_context or "").strip()
+        self.document_context = document_context
 
         self.selection_metadata: Optional[SelectionMetadata] = None
 
@@ -243,13 +245,24 @@ class Mediator:
             self._on_progress(msg)
 
     def _augmented_problem(self, problem: str) -> str:
-        """Prepend user context to the problem statement for all LLM calls."""
-        if not self.user_context:
+        """Prepend user context and document content to the problem statement."""
+        if not self.document_context and not self.user_context:
             return problem
-        return (
-            f"User context and constraints:\n{self.user_context}\n\n"
-            f"Problem to analyze:\n{problem}"
-        )
+        parts = []
+        if self.document_context:
+            dc = self.document_context
+            parts.append(
+                f"## Grounding Document: {dc.filename}\n\n"
+                f"({dc.page_count or '?'} pages, {dc.char_count:,} characters, "
+                f"extracted via {dc.extraction_method})\n\n"
+                f"Ground your analysis in this material where relevant; "
+                f"cite the document explicitly when you draw on it.\n\n"
+                f"<document>\n{dc.content}\n</document>"
+            )
+        if self.user_context:
+            parts.append(f"User context and constraints:\n{self.user_context}")
+        parts.append(f"Problem to analyze:\n{problem}")
+        return "\n\n".join(parts)
 
     def _select_agents(self, problem: str) -> None:
         """Run the two-step LLM pre-pass: dynamic panel generation + gap check."""
