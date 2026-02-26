@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 
 from src.llm.client import ClaudeClient, DEFAULT_MODEL
 from src.mediator import Mediator
+from src.utils.document_loader import load_document, DocumentLoadError
 from src.project_memory import ProjectMemory, QAPair
 from src.utils.exporters import export_all
 from src.utils.formatters import format_customer_report, format_detailed_report, format_final_analysis, format_round_summary
@@ -48,6 +49,14 @@ def main():
     parser.add_argument("--run-label", default="", help="Tag for metrics comparison (e.g. 'pre-ptc', 'ptc'). Defaults to git short hash.")
     # Hidden escape hatch
     parser.add_argument("--no-repeat-prompt", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--document",
+        metavar="PATH",
+        help=(
+            "Path to a document (PDF, TXT, MD) to use as grounding context. "
+            "Content is injected into every agent's prompt."
+        ),
+    )
     args = parser.parse_args()
 
     problem = args.problem
@@ -80,8 +89,23 @@ def main():
             user_context = brief_ctx
 
     client = ClaudeClient(model=args.model)
+    # ── document loading ───────────────────────────────────────────────────
+    document_context = None
+    if getattr(args, "document", None):
+        try:
+            document_context = load_document(args.document)
+            print(
+                f"[document] Loaded '{document_context.filename}' — "
+                f"{document_context.page_count or '?'} pages, "
+                f"{document_context.char_count:,} chars "
+                f"(via {document_context.extraction_method})"
+            )
+        except DocumentLoadError as exc:
+            print(f"[error] Could not load document: {exc}", file=sys.stderr)
+            sys.exit(1)
+
     agent_client = ClaudeClient(model=args.agent_model, max_tokens=2048) if args.agent_model else None
-    mediator = Mediator(client, search=not args.no_search, deep_research=args.deep_research, agent_client=agent_client, repeat_prompt=not args.no_repeat_prompt, user_context=user_context or None)
+    mediator = Mediator(client, search=not args.no_search, deep_research=args.deep_research, agent_client=agent_client, repeat_prompt=not args.no_repeat_prompt, user_context=user_context or None, document_context=document_context)
 
     print(f"\nAnalyzing: {problem}\n")
     if user_context:
