@@ -1,7 +1,6 @@
 """Cross-session project memory: living brief + append-only session logs."""
 from __future__ import annotations
 
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -96,20 +95,53 @@ class ProjectMemory:
     def update_brief(self, client, analysis, qa_pairs: List[QAPair]) -> str:
         """Use LLM to rewrite brief.md; return new brief text."""
         current_brief = self.brief_path.read_text(encoding="utf-8")
+        new_brief = compute_brief_update(client, current_brief, analysis, qa_pairs)
+        if new_brief:
+            self.brief_path.write_text(new_brief.strip() + "\n", encoding="utf-8")
+        return new_brief
 
-        problem = getattr(analysis, "problem", None) or ""
-        synthesis = getattr(analysis, "synthesis", None) or ""
-        recs = getattr(analysis, "recommendations", None) or []
 
-        recs_text = ""
-        if recs:
-            recs_text = "\n".join(f"- {r}" for r in recs)
+# ── Module-level helpers (no filesystem I/O) ──────────────────────────────────
 
-        qa_text = ""
-        if qa_pairs:
-            qa_text = "\n".join(f"Q: {q}\nA: {a}" for q, a in qa_pairs)
 
-        user_prompt = f"""\
+def format_session_log(analysis, qa_pairs: List[QAPair]) -> str:
+    """Return session log as a markdown string without writing to disk."""
+    timestamp = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M")
+    lines: List[str] = [f"## Session {timestamp}"]
+
+    problem = getattr(analysis, "problem", None) or ""
+    lines.append(f"**Problem:** {problem}")
+
+    synthesis = getattr(analysis, "synthesis", None) or ""
+    if synthesis:
+        lines.append(f"\n**Synthesis:** {synthesis}")
+
+    recs = getattr(analysis, "recommendations", None) or []
+    if recs:
+        lines.append("\n**Recommendations:**")
+        for rec in recs:
+            lines.append(f"- {rec if isinstance(rec, str) else str(rec)}")
+
+    if qa_pairs:
+        lines.append("\n**Follow-ups:**")
+        for q, a in qa_pairs:
+            lines.append(f"Q: {q}")
+            lines.append(f"A: {a}")
+            lines.append("")
+
+    return "\n".join(lines) + "\n\n---\n\n"
+
+
+def compute_brief_update(client, current_brief: str, analysis, qa_pairs: List[QAPair]) -> str:
+    """Use LLM to generate an updated brief; return new text without writing to disk."""
+    problem = getattr(analysis, "problem", None) or ""
+    synthesis = getattr(analysis, "synthesis", None) or ""
+    recs = getattr(analysis, "recommendations", None) or []
+
+    recs_text = "\n".join(f"- {r}" for r in recs) if recs else ""
+    qa_text = "\n".join(f"Q: {q}\nA: {a}" for q, a in qa_pairs) if qa_pairs else ""
+
+    user_prompt = f"""\
 Current brief:
 {current_brief}
 
@@ -126,7 +158,4 @@ Follow-up Q&A:
 {qa_text}
 """.strip()
 
-        new_brief = client.chat(BRIEF_SYSTEM, user_prompt)
-        if new_brief:
-            self.brief_path.write_text(new_brief.strip() + "\n", encoding="utf-8")
-        return new_brief
+    return client.chat(BRIEF_SYSTEM, user_prompt)

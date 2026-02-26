@@ -3,6 +3,9 @@
 Supports:
   - PDF (via pypdf, falls back to pdfminer, then pytesseract OCR)
   - Plain text (.txt, .md)
+  - Word (.docx, via python-docx)
+  - PowerPoint (.pptx, via python-pptx)
+  - Excel (.xlsx, via openpyxl)
   - Raises DocumentLoadError with a user-friendly message on failure.
 """
 from __future__ import annotations
@@ -99,6 +102,70 @@ def _extract_pdf(data: bytes) -> tuple[str, int, str]:
     )
 
 
+# ── Office format extractors ──────────────────────────────────────────────────
+
+
+def _extract_docx(data: bytes) -> str:
+    """Extract text from a Word .docx file via python-docx."""
+    try:
+        import docx  # type: ignore
+    except ImportError:
+        raise DocumentLoadError(
+            "python-docx is required for Word files: pip install python-docx"
+        )
+    doc = docx.Document(io.BytesIO(data))
+    paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
+    # Also extract text from tables
+    for table in doc.tables:
+        for row in table.rows:
+            cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
+            if cells:
+                paragraphs.append("\t".join(cells))
+    return "\n\n".join(paragraphs)
+
+
+def _extract_pptx(data: bytes) -> tuple[str, int]:
+    """Extract text from a PowerPoint .pptx file via python-pptx."""
+    try:
+        from pptx import Presentation  # type: ignore
+    except ImportError:
+        raise DocumentLoadError(
+            "python-pptx is required for PowerPoint files: pip install python-pptx"
+        )
+    prs = Presentation(io.BytesIO(data))
+    slides = []
+    for i, slide in enumerate(prs.slides, 1):
+        texts = []
+        for shape in slide.shapes:
+            if hasattr(shape, "text") and shape.text.strip():
+                texts.append(shape.text.strip())
+        if texts:
+            slides.append(f"[Slide {i}]\n" + "\n".join(texts))
+    return "\n\n".join(slides), len(prs.slides)
+
+
+def _extract_xlsx(data: bytes) -> tuple[str, int]:
+    """Extract cell data from an Excel .xlsx file via openpyxl."""
+    try:
+        import openpyxl  # type: ignore
+    except ImportError:
+        raise DocumentLoadError(
+            "openpyxl is required for Excel files: pip install openpyxl"
+        )
+    wb = openpyxl.load_workbook(io.BytesIO(data), data_only=True)
+    sheets = []
+    for sheet_name in wb.sheetnames:
+        ws = wb[sheet_name]
+        rows = []
+        for row in ws.iter_rows(values_only=True):
+            cells = [str(c) if c is not None else "" for c in row]
+            if any(c.strip() for c in cells):
+                rows.append("\t".join(cells))
+        if rows:
+            sheets.append(f"[Sheet: {sheet_name}]\n" + "\n".join(rows))
+    return "\n\n".join(sheets), len(wb.sheetnames)
+
+
 # ── public API ────────────────────────────────────────────────────────────────
 
 
@@ -143,10 +210,20 @@ def load_document(source: str | Path | bytes, filename: Optional[str] = None) ->
             text = data.decode("latin-1")
         page_count = None
         method = "text"
+    elif suffix == ".docx":
+        text = _extract_docx(data)
+        page_count = None
+        method = "text"
+    elif suffix == ".pptx":
+        text, page_count = _extract_pptx(data)
+        method = "text"
+    elif suffix in {".xlsx", ".xls"}:
+        text, page_count = _extract_xlsx(data)
+        method = "text"
     else:
         raise DocumentLoadError(
             f"Unsupported file type: '{suffix}'. "
-            "Supported formats: .pdf, .txt, .md, .rst"
+            "Supported formats: .pdf, .txt, .md, .rst, .docx, .pptx, .xlsx"
         )
 
     text = _truncate(text.strip())

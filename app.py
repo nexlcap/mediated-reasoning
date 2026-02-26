@@ -1,21 +1,15 @@
 import queue
 import re
+import tempfile
 import threading
 from pathlib import Path
-from typing import List, Optional, Tuple
-
-try:
-    import tkinter as _tk
-    from tkinter import filedialog as _filedialog
-    _TK_AVAILABLE = True
-except ImportError:
-    _TK_AVAILABLE = False
+from typing import List, Optional
 
 import gradio as gr
 
 from src.llm.client import ClaudeClient
 from src.mediator import Mediator
-from src.project_memory import ProjectMemory, QAPair
+from src.project_memory import QAPair
 from src.utils.document_loader import load_document, DocumentLoadError
 from src.utils.formatters import (
     format_core_md,
@@ -23,7 +17,6 @@ from src.utils.formatters import (
     format_sources_md,
 )
 
-PROJECTS_DIR = Path.home() / ".fusen" / "projects"
 ANSI_RE = re.compile(r'\033\[[0-9;]*m')
 
 MODELS = [
@@ -52,6 +45,7 @@ body,
 .gradio-container select,
 .gradio-container button,
 .gradio-container h1,
+
 .gradio-container h2,
 .gradio-container h3,
 .gradio-container h4 {
@@ -73,7 +67,6 @@ body,
     line-height: 1.2;
 }
 .fusen-sub    { color: var(--body-text-color-subdued, #777); font-size: 0.9em;  margin: 2px 0 0 0; }
-.fusen-tagline{ color: var(--body-text-color-subdued, #aaa); font-size: 0.82em; font-style: italic; margin: 1px 0 0 0; }
 
 /* ── Analyze button ── */
 .analyze-btn button {
@@ -177,6 +170,13 @@ body,
 }
 #detail-sidebar.open > * { direction: ltr !important; }
 
+/* ── Memory buttons — match input field height & font ── */
+.memory-btns button {
+    font-size: 0.875rem !important;
+    height: 40px !important;
+    min-height: 40px !important;
+}
+
 /* ── Modals ── */
 .modal-overlay > div.gr-group,
 .modal-overlay {
@@ -211,25 +211,9 @@ _JS = """
 function() {
     const TIPS = {
         "api-key":          "Your Anthropic / OpenAI / Google / xAI API key — never stored or shared",
-        "context":          "Background about your situation (stage, budget, constraints) — prepended to every analysis",
-        "context-expand":   "Open in a larger editing window",
-        "projects-dd":      "Pick an existing project to load its accumulated brief",
-        "create-new-cb":    "Enable to save this session under a new named project",
-        "project-name":     "Name for the new project folder (letters, numbers, hyphens)",
-        "save-location":    "Parent directory where the project folder will be created (default: ~/.fusen/projects/)",
-        "browse-save":      "Open the system folder picker to choose a save location",
-        "custom-path":      "Full path to any folder — load or create a project there regardless of the named-project system",
-        "browse-open":      "Open the system folder picker to choose a project folder",
-        "load-btn":         "Load the project brief from disk, or create the folder and a blank brief if it doesn't exist yet",
-        "brief":            "Living one-page project summary — rewritten by the AI after each session, always editable by you",
-        "brief-expand":     "Open in a larger editing window",
-        "save-session":     "Append this session to the log and ask the AI to rewrite the project brief",
+        "memory-upload":     "Load a memory.md from a previous session to restore project context",
+        "save-session":     "Download the current project memory as memory.md",
         "model-dd":         "LLM used for synthesis and the final report",
-        "agent-model-dd":   "LLM used for individual specialist agents — set to a cheaper/faster model to reduce cost without affecting synthesis quality",
-        "auto-cb":          "Let the AI choose the most relevant specialist lenses for your specific problem",
-        "search-cb":        "Disable web search — runs faster but recommendations won't cite live sources",
-        "deep-cb":          "Run an extra conflict-resolution pass to reconcile disagreements between specialists",
-        "repeat-cb":        "Re-send the original question to synthesis — measurably improves quality (arxiv 2512.14982)",
         "tavily":           "Optional Tavily premium search key — higher-quality citations than the default DuckDuckGo fallback",
         "problem":          "State the problem, idea, or decision you want analysed from multiple expert angles",
         "analyze-btn":      "Run a full multi-specialist analysis (typically 30–120 s depending on model and depth)",
@@ -253,8 +237,7 @@ function() {
 _HEADER_HTML = """
 <div class="fusen-header">
   <div class="fusen-title">🔥 Fusen</div>
-  <p class="fusen-sub">AI co-founder for solo entrepreneurs — fuse every angle, move alone.</p>
-  <p class="fusen-tagline">Let the journey begin!</p>
+  <p class="fusen-sub">Multi-expert analysis for any complex question — business, career, research, strategy, and why the dinosaurs died out.</p>
 </div>
 """
 
@@ -272,25 +255,6 @@ def _parse_weights(weights_str: str) -> dict:
         weights[name.strip()] = float(val.strip())
     return weights
 
-
-def browse_for_folder() -> str:
-    if not _TK_AVAILABLE:
-        return ""
-    try:
-        root = _tk.Tk()
-        root.withdraw()
-        root.wm_attributes("-topmost", True)
-        folder = _filedialog.askdirectory(title="Select project folder")
-        root.destroy()
-        return folder or ""
-    except Exception:
-        return ""
-
-
-def _list_projects() -> List[str]:
-    if not PROJECTS_DIR.exists():
-        return []
-    return sorted(p.name for p in PROJECTS_DIR.iterdir() if p.is_dir())
 
 
 def _status_html(lines: List[str]) -> str:
@@ -343,61 +307,18 @@ def _show_qa_in_sidebar(qa_history) -> str:
 
 
 # ── Project helpers ───────────────────────────────────────────────────────────
-def load_project(selected_name: str, new_name: str, save_location: str, custom_path: str) -> Tuple:
-    custom_path = (custom_path or "").strip()
-    if custom_path:
-        project_dir  = Path(custom_path).expanduser().resolve()
-        display_name = project_dir.name
-    else:
-        name = (new_name or selected_name or "").strip()
-        name = re.sub(r"[^\w\- ]", "", name).strip()
-        if not name:
-            return "", "Enter a project name, paste a path, or select an existing one.", None, gr.update()
-        parent = (
-            Path((save_location or "").strip()).expanduser().resolve()
-            if (save_location or "").strip() else PROJECTS_DIR
-        )
-        project_dir  = parent / name
-        display_name = name
-    try:
-        is_new = not project_dir.exists()
-        pm     = ProjectMemory(str(project_dir))
-        brief  = pm.load()
-        verb   = "Created" if is_new else "Loaded"
-        return (
-            brief,
-            f"{verb}: **{display_name}**  (`{project_dir}`)",
-            pm,
-            gr.update(choices=_list_projects(), value=display_name if not custom_path else None),
-        )
-    except Exception as e:
-        return "", f"Error: {e}", None, gr.update()
-
-
-def save_project_session(
-    result, mediator, qa_history: List[QAPair],
-    project_memory: Optional[ProjectMemory],
-    api_key: str, model: str,
-) -> Tuple[str, str]:
-    if project_memory is None:
-        return "", "No project loaded."
-    if result is None:
-        return "", "Run an analysis first."
-    try:
-        project_memory.save_session(result, qa_history or [])
-        client    = ClaudeClient(model=model, api_key=api_key.strip() or None)
-        new_brief = project_memory.update_brief(client, result, qa_history or [])
-        return new_brief or "", "Session saved and brief updated."
-    except Exception as e:
-        return "", f"Error saving session: {e}"
+def save_brief(brief_text: str):
+    tmp = Path(tempfile.mkdtemp())
+    brief_path = tmp / "memory.md"
+    brief_path.write_text((brief_text or "").strip() + "\n", encoding="utf-8")
+    return gr.update(visible=True, value=str(brief_path))
 
 
 # ── Analysis ──────────────────────────────────────────────────────────────────
 def run_analysis(
-    problem, model, agent_model, api_key,
-    no_search, deep_research,
-    repeat_prompt, tavily_key, user_context,
-    project_memory, brief_text,
+    problem, model, api_key,
+    tavily_key,
+    brief_text,
     document_path=None,
 ):
     # 10 outputs: status_html · core_out · right_detail_md · right_stats_md
@@ -426,10 +347,9 @@ def run_analysis(
         except DocumentLoadError as e:
             yield _error(f"Document error: {e}"); return
 
-    effective_context = (user_context or "").strip()
-    if project_memory is not None and brief_text and brief_text.strip():
-        brief_ctx = f"Project brief:\n{brief_text.strip()}"
-        effective_context = brief_ctx + ("\n\n" + effective_context if effective_context else "")
+    effective_context = ""
+    if brief_text and brief_text.strip():
+        effective_context = f"Project memory:\n{brief_text.strip()}"
 
     key      = api_key.strip()
     status_q = queue.Queue()
@@ -437,12 +357,11 @@ def run_analysis(
     def on_progress(msg):
         status_q.put(("status", msg))
 
-    client       = ClaudeClient(model=model, api_key=key)
-    agent_client = ClaudeClient(model=agent_model, api_key=key) if agent_model != model else None
-    mediator     = Mediator(
-        client, search=not no_search,
-        deep_research=deep_research, agent_client=agent_client,
-        repeat_prompt=repeat_prompt,
+    client   = ClaudeClient(model=model, api_key=key)
+    mediator = Mediator(
+        client, search=True,
+        deep_research=True, agent_client=None,
+        repeat_prompt=True,
         tavily_api_key=(tavily_key or "").strip() or None,
         on_progress=on_progress,
         user_context=effective_context or None,
@@ -509,7 +428,6 @@ with gr.Blocks(title="Fusen") as demo:
     result_state      = gr.State(None)
     mediator_state    = gr.State(None)
     qa_history_state  = gr.State([])
-    project_mem_state = gr.State(None)
 
     # ── Left Sidebar ──────────────────────────────────────────────────────────
     with gr.Sidebar(label="Settings", open=True, position="left", width=320,
@@ -519,73 +437,27 @@ with gr.Blocks(title="Fusen") as demo:
             label="API key", placeholder="sk-ant-… · sk-… · xai-…",
             type="password", elem_id="api-key",
         )
-        context_input = gr.Textbox(
-            label="Additional context (optional)",
-            placeholder="e.g. Bootstrapped SaaS, 2 co-founders, $8k MRR, B2B — keeps recommendations actionable",
-            lines=2, elem_id="context",
+        model_dd = gr.Dropdown(
+            choices=MODELS, value=MODELS[0], label="Model", elem_id="model-dd",
         )
-        context_expand_btn = gr.Button("⤢ Expand", size="sm", variant="secondary",
-                                       elem_id="context-expand")
 
-        with gr.Accordion("Project memory (optional)", open=False):
-            with gr.Tabs():
-                with gr.Tab("Named project"):
-                    existing_projects_dd = gr.Dropdown(
-                        label="Existing projects", choices=_list_projects(),
-                        value=None, allow_custom_value=False, elem_id="projects-dd",
-                    )
-                    create_new_cb = gr.Checkbox(label="Save as new project", value=False,
-                                               elem_id="create-new-cb")
-                    with gr.Group(visible=False) as new_project_group:
-                        new_project_name = gr.Textbox(
-                            label="Project name", placeholder="my-saas-idea",
-                            elem_id="project-name",
-                        )
-                        with gr.Row():
-                            save_location_input = gr.Textbox(
-                                label="Save in", placeholder=str(PROJECTS_DIR),
-                                scale=3, elem_id="save-location",
-                            )
-                            browse_save_btn = gr.Button("Browse…", scale=1,
-                                                        elem_id="browse-save")
-                with gr.Tab("Any folder"):
-                    with gr.Row():
-                        custom_path_input = gr.Textbox(
-                            label="Folder path",
-                            placeholder="/home/you/projects/my-startup",
-                            interactive=True, scale=4, elem_id="custom-path",
-                        )
-                        browse_open_btn = gr.Button("Browse…", scale=1,
-                                                    elem_id="browse-open")
+        tavily_input = gr.Textbox(
+            label="Tavily API key\n(optional)",
+            placeholder="tvly-…", type="password", elem_id="tavily",
+        )
 
-            load_project_btn = gr.Button("Load / Create", variant="primary",
-                                         elem_id="load-btn")
-            project_status = gr.Markdown()
-            brief_area = gr.Textbox(
-                label="Project brief (auto-updated after each session, human-editable)",
-                lines=8, interactive=True, elem_id="brief",
+        with gr.Row(elem_classes=["memory-btns"]):
+            brief_upload = gr.UploadButton(
+                "Load memory", file_types=[".md", ".txt"],
+                type="filepath", elem_id="memory-upload",
             )
-            brief_expand_btn = gr.Button("⤢ Expand", size="sm", variant="secondary",
-                                         elem_id="brief-expand")
-            with gr.Row():
-                save_session_btn = gr.Button("Save session + update brief",
-                                             elem_id="save-session")
-                save_status = gr.Markdown()
+            save_memory_btn = gr.Button("Save memory", variant="secondary",
+                                        elem_id="save-session")
+        brief_load_info = gr.Markdown(visible=False)
+        brief_download  = gr.File(show_label=False, visible=False,
+                                  elem_id="memory-download")
+        brief_area = gr.Textbox(visible=False, elem_id="memory")
 
-        with gr.Accordion("Advanced options", open=False):
-            model_dd = gr.Dropdown(
-                choices=MODELS, value=MODELS[0], label="Synthesis model", elem_id="model-dd",
-            )
-            agent_model_dd = gr.Dropdown(
-                choices=MODELS, value=MODELS[0], label="Agent model", elem_id="agent-model-dd",
-            )
-            search_cb = gr.Checkbox(label="Skip web search",     value=False, elem_id="search-cb")
-            deep_cb   = gr.Checkbox(label="Deep research",       value=True,  elem_id="deep-cb")
-            repeat_cb = gr.Checkbox(label="Repeat prompt",       value=True,  elem_id="repeat-cb")
-            tavily_input = gr.Textbox(
-                label="Tavily API key (optional — higher-quality search)",
-                placeholder="tvly-…", type="password", elem_id="tavily",
-            )
 
     # ── Right Sidebar ─────────────────────────────────────────────────────────
     with gr.Sidebar(label="Detail", open=True, position="right", width=400,
@@ -598,12 +470,12 @@ with gr.Blocks(title="Fusen") as demo:
 
     problem_input = gr.Textbox(
         show_label=False,
-        placeholder="Describe the problem or idea you want to analyse — e.g. Should I build a B2B SaaS for restaurant inventory management?",
+        placeholder="Describe the problem, decision, or document you want analysed — e.g. Should I build a B2B SaaS for restaurant inventory management? · Upload your CV and ask: what are my strengths and gaps, what roles fit, and what salary range should I target?",
         lines=4, elem_id="problem",
     )
     document_upload = gr.File(
-        label="Ground in a document (optional — PDF, TXT, MD)",
-        file_types=[".pdf", ".txt", ".md", ".rst"],
+        label="+ (PDF, TXT, MD, DOCX, PPTX, XLSX)",
+        file_types=[".pdf", ".txt", ".md", ".rst", ".docx", ".pptx", ".xlsx", ".xls"],
         type="filepath",
     )
     submit_btn = gr.Button("Analyze", variant="primary", size="lg",
@@ -630,46 +502,27 @@ with gr.Blocks(title="Fusen") as demo:
             followup_btn = gr.Button("↵", scale=1, variant="secondary",
                                      elem_id="followup-btn")
 
-    # ── Modals ────────────────────────────────────────────────────────────────
-    with gr.Group(visible=False, elem_classes=["modal-overlay"]) as context_modal:
-        with gr.Column(elem_classes=["modal-inner"]):
-            gr.Markdown("### Additional context")
-            context_modal_text = gr.Textbox(
-                show_label=False, lines=18, interactive=True,
-                placeholder="e.g. Bootstrapped SaaS, 2 co-founders, $8k MRR, B2B — keeps recommendations actionable",
-            )
-            with gr.Row():
-                context_modal_save_btn   = gr.Button("Save & Close", variant="primary")
-                context_modal_cancel_btn = gr.Button("Cancel")
-
-    with gr.Group(visible=False, elem_classes=["modal-overlay"]) as brief_modal:
-        with gr.Column(elem_classes=["modal-inner"]):
-            gr.Markdown("### Project brief")
-            brief_modal_text = gr.Textbox(show_label=False, lines=22, interactive=True)
-            with gr.Row():
-                brief_modal_save_btn   = gr.Button("Save & Close", variant="primary")
-                brief_modal_cancel_btn = gr.Button("Cancel")
-
     # ── Wiring ────────────────────────────────────────────────────────────────
-    create_new_cb.change(
-        fn=lambda c: gr.update(visible=c), inputs=[create_new_cb], outputs=[new_project_group],
-    )
-    browse_save_btn.click(fn=browse_for_folder, inputs=[], outputs=[save_location_input])
-    browse_open_btn.click(fn=browse_for_folder, inputs=[], outputs=[custom_path_input])
+    def _load_brief(p):
+        if not p:
+            return "", gr.update(visible=False)
+        return (
+            Path(p).read_text(encoding="utf-8"),
+            gr.update(visible=True, value=f"📄 {Path(p).name}"),
+        )
 
-    load_project_btn.click(
-        fn=load_project,
-        inputs=[existing_projects_dd, new_project_name, save_location_input, custom_path_input],
-        outputs=[brief_area, project_status, project_mem_state, existing_projects_dd],
+    brief_upload.upload(
+        fn=_load_brief, inputs=[brief_upload], outputs=[brief_area, brief_load_info],
     )
 
     submit_btn.click(
         fn=run_analysis,
         inputs=[
-            problem_input, model_dd, agent_model_dd, api_key_input,
-            search_cb, deep_cb,
-            repeat_cb, tavily_input, context_input,
-            project_mem_state, brief_area,
+            problem_input, 
+            model_dd, 
+            api_key_input,
+            tavily_input,
+            brief_area,
             document_upload,
         ],
         outputs=[
@@ -691,34 +544,8 @@ with gr.Blocks(title="Fusen") as demo:
     show_qa_btn.click(
         fn=_show_qa_in_sidebar, inputs=[qa_history_state], outputs=[right_detail_md],
     )
-    save_session_btn.click(
-        fn=save_project_session,
-        inputs=[result_state, mediator_state, qa_history_state,
-                project_mem_state, api_key_input, model_dd],
-        outputs=[brief_area, save_status],
-    )
-
-    context_expand_btn.click(
-        fn=lambda v: (gr.update(visible=True), v),
-        inputs=[context_input], outputs=[context_modal, context_modal_text],
-    )
-    context_modal_save_btn.click(
-        fn=lambda v: (v, gr.update(visible=False)),
-        inputs=[context_modal_text], outputs=[context_input, context_modal],
-    )
-    context_modal_cancel_btn.click(
-        fn=lambda: gr.update(visible=False), inputs=[], outputs=[context_modal],
-    )
-    brief_expand_btn.click(
-        fn=lambda v: (gr.update(visible=True), v),
-        inputs=[brief_area], outputs=[brief_modal, brief_modal_text],
-    )
-    brief_modal_save_btn.click(
-        fn=lambda v: (v, gr.update(visible=False)),
-        inputs=[brief_modal_text], outputs=[brief_area, brief_modal],
-    )
-    brief_modal_cancel_btn.click(
-        fn=lambda: gr.update(visible=False), inputs=[], outputs=[brief_modal],
+    save_memory_btn.click(
+        fn=save_brief, inputs=[brief_area], outputs=[brief_download],
     )
 
 demo.launch(server_name="0.0.0.0", server_port=7860, ssr_mode=False,
