@@ -1,4 +1,4 @@
 setuptools
-git+https://github.com/nexlcap/mediated-reasoning.git@103105087b8549a1455bf1fd55518635ccffbc02
+git+https://github.com/nexlcap/mediated-reasoning.git@f01eb0a8274ead4bda5be3afe40a06028f43f9c9
 gradio>=6.6.0
 audioop-lts; python_version >= "3.13"
