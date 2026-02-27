@@ -485,11 +485,12 @@ with gr.Blocks(title="Fusen") as demo:
         placeholder="Describe the problem, decision, or document you want analysed — e.g. Should I build a B2B SaaS for restaurant inventory management? · Upload your CV and ask: what are my strengths and gaps, what roles fit, and what salary range should I target?",
         lines=4, elem_id="problem",
     )
-    document_upload = gr.File(
-        label="+ (PDF, TXT, MD, DOCX, PPTX, XLSX)",
-        file_types=[".pdf", ".txt", ".md", ".rst", ".docx", ".pptx", ".xlsx", ".xls"],
-        type="filepath",
-    )
+    with gr.Accordion("📎 Attach a document (PDF, TXT, MD, DOCX, PPTX, XLSX)", open=False):
+        document_upload = gr.File(
+            show_label=False,
+            file_types=[".pdf", ".txt", ".md", ".rst", ".docx", ".pptx", ".xlsx", ".xls"],
+            type="filepath",
+        )
     submit_btn = gr.Button("Analyze", variant="primary", size="lg",
                            elem_classes=["analyze-btn"], elem_id="analyze-btn")
 
