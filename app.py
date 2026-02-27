@@ -170,6 +170,28 @@ body,
 }
 #detail-sidebar.open > * { direction: ltr !important; }
 
+/* ── Document upload — keep "add more files" button full-width and visible ── */
+#doc-upload label:has(input[type="file"]) {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 100% !important;
+    min-height: 44px !important;
+    border: 1.5px dashed var(--border-color-primary, #d1d5db) !important;
+    border-radius: 8px !important;
+    padding: 8px 16px !important;
+    margin-top: 6px !important;
+    cursor: pointer !important;
+    font-size: 0.88em !important;
+    color: var(--body-text-color-subdued, #888) !important;
+    box-sizing: border-box !important;
+    transition: border-color 0.15s, color 0.15s !important;
+}
+#doc-upload label:has(input[type="file"]):hover {
+    border-color: #f97316 !important;
+    color: #f97316 !important;
+}
+
 /* ── Memory buttons — match input field height & font ── */
 .memory-btns button {
     font-size: 0.875rem !important;
@@ -504,6 +526,7 @@ with gr.Blocks(title="Fusen") as demo:
             file_types=[".pdf", ".txt", ".md", ".rst", ".docx", ".pptx", ".xlsx", ".xls"],
             file_count="multiple",
             type="filepath",
+            elem_id="doc-upload",
         )
     submit_btn = gr.Button("Analyze", variant="primary", size="lg",
                            elem_classes=["analyze-btn"], elem_id="analyze-btn")
