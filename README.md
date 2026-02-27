@@ -16,9 +16,9 @@ pinned: false
 
 **Try it now:** [🔥 HuggingFace Space](https://huggingface.co/spaces/Yi47/mediated-reasoning) — no setup required, bring your own API key.
 
-Fusen is the AI co-founder for solo entrepreneurs and builders. It assembles the right specialist advisors for your specific question, fuses their perspectives through three rounds of structured reasoning, and delivers a single, conflict-arbitrated recommendation — zero blind spots.
+Fusen assembles the right specialist perspectives for your question, has them debate and revise across three rounds of structured reasoning, and delivers a conflict-arbitrated answer grounded in real, cited web sources — not just model opinions.
 
-Whether you're validating a startup idea, distilling market signals into product opportunities, or navigating the next phase of company building, Fusen covers every role so you don't have to hire for them.
+It works for any question where getting it right matters: evaluating a business idea, making a career move, synthesising a research area, stress-testing an investment thesis, comparing strategic options, navigating a hiring decision — or settling a long-running argument about why the dinosaurs died out.
 
 ## How It Works
 
