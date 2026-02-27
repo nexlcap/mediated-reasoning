@@ -231,6 +231,18 @@ function() {
     applyTips();
     setTimeout(applyTips, 800);
     setTimeout(applyTips, 3000);
+
+    // On mobile, close the settings sidebar so the main content is visible first
+    function closeSidebarsOnMobile() {
+        if (window.innerWidth >= 768) return;
+        var el = document.getElementById('settings-sidebar');
+        if (el && el.classList.contains('open')) {
+            var btn = el.querySelector('button');
+            if (btn) btn.click();
+        }
+    }
+    setTimeout(closeSidebarsOnMobile, 500);
+    setTimeout(closeSidebarsOnMobile, 1500);
 }
 """
 
@@ -460,7 +472,7 @@ with gr.Blocks(title="Fusen") as demo:
 
 
     # ── Right Sidebar ─────────────────────────────────────────────────────────
-    with gr.Sidebar(label="Detail", open=True, position="right", width=400,
+    with gr.Sidebar(label="Detail", open=False, position="right", width=400,
                     elem_id="detail-sidebar"):
         right_stats_md  = gr.Markdown()
         right_detail_md = gr.Markdown("*Run an analysis to see details here.*")
