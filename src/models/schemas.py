@@ -148,6 +148,8 @@ class FinalAnalysis(BaseModel):
     synthesis: str = ""
     recommendations: List[str] = Field(default_factory=list)
     priority_flags: List[str] = Field(default_factory=list)
+    tldr_label: str = ""
+    tldr_items: List[str] = Field(default_factory=list)
     sources: List[str] = Field(default_factory=list)
     deactivated_disclaimer: str = ""
     selection_metadata: Optional[SelectionMetadata] = None

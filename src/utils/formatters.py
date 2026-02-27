@@ -1,3 +1,5 @@
+import re
+
 from src.models.schemas import Conflict, ConflictResolution, FinalAnalysis, AgentOutput
 
 
@@ -408,6 +410,14 @@ def format_detailed_report(analysis: FinalAnalysis) -> str:
     return "\n".join(lines)
 
 
+_CITATION_RE = re.compile(r'\s*\[\d+\]')
+
+
+def _strip_citations(text: str) -> str:
+    """Remove inline [N] citation markers — used for TLDR fallback display."""
+    return _CITATION_RE.sub('', text).strip()
+
+
 def _flag_md(flag: str) -> str:
     """Convert 'red: ...' flag to emoji + text for markdown rendering."""
     lower = flag.lower()
@@ -421,24 +431,26 @@ def _flag_md(flag: str) -> str:
 
 
 def format_core_md(analysis: FinalAnalysis) -> str:
-    """Core result for the main canvas.
-    Flow: critical signals → analysis → recommended actions.
+    """Web-optimised result for the main canvas.
+    Flow: TLDR (top 3, adaptive label) → analysis → signals → all recommendations.
     Sources are excluded — they live in the right sidebar.
     """
     parts: list[str] = []
 
-    # Signals sorted red → yellow → green so the most urgent land first
-    if analysis.priority_flags:
-        red    = [f for f in analysis.priority_flags if f.lower().startswith("red")]
-        yellow = [f for f in analysis.priority_flags if f.lower().startswith("yellow")]
-        green  = [f for f in analysis.priority_flags if f.lower().startswith("green")]
-        other  = [f for f in analysis.priority_flags
-                  if not f.lower().startswith(("red", "yellow", "green"))]
-        parts.append("## 🚦 Critical Signals")
-        for flag in red + yellow + green + other:
-            parts.append(f"- {_flag_md(flag)}")
+    # ── TLDR ─────────────────────────────────────────────────────────────────
+    tldr_items = list(analysis.tldr_items or [])
+    if not tldr_items and analysis.recommendations:
+        # Fallback: top 3 recommendations with citations stripped for clean display
+        tldr_items = [_strip_citations(r) for r in analysis.recommendations[:3]]
+    if tldr_items:
+        label = analysis.tldr_label or "Key Takeaways"
+        parts.append(f"## ⚡ {label}")
         parts.append("")
+        for i, item in enumerate(tldr_items[:3], 1):
+            parts.append(f"**{i}.** {item}")
+            parts.append("")
 
+    # ── Analysis ─────────────────────────────────────────────────────────────
     if analysis.synthesis:
         if parts:
             parts.append("---")
@@ -448,13 +460,27 @@ def format_core_md(analysis: FinalAnalysis) -> str:
         parts.append(analysis.synthesis)
         parts.append("")
 
+    # ── Signals sorted red → yellow → green ──────────────────────────────────
+    if analysis.priority_flags:
+        red    = [f for f in analysis.priority_flags if f.lower().startswith("red")]
+        yellow = [f for f in analysis.priority_flags if f.lower().startswith("yellow")]
+        green  = [f for f in analysis.priority_flags if f.lower().startswith("green")]
+        other  = [f for f in analysis.priority_flags
+                  if not f.lower().startswith(("red", "yellow", "green"))]
+        parts.append("---")
+        parts.append("")
+        parts.append("## 🚦 Signals")
+        for flag in red + yellow + green + other:
+            parts.append(f"- {_flag_md(flag)}")
+        parts.append("")
+
+    # ── Full recommendations with citations ───────────────────────────────────
     if analysis.recommendations:
         parts.append("---")
         parts.append("")
         parts.append("## ✅ Recommended Actions")
         parts.append("")
         for i, rec in enumerate(analysis.recommendations, 1):
-            # Each recommendation as its own visual block
             parts.append(f"**{i}.** {rec}")
             parts.append("")
 
