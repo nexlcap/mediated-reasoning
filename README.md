@@ -14,7 +14,7 @@ pinned: false
 
 **Fuse every angle. Move alone.**
 
-**Try it now:** [🔥 HuggingFace Space](https://huggingface.co/spaces/Yi47/mediated-reasoning) — no setup required, bring your own API key.
+**Try it now:** [🔥 HuggingFace Space](https://app.fusen.ai) — no setup required, bring your own API key.
 
 Fusen assembles the right specialist perspectives for your question, has them debate and revise across three rounds of structured reasoning, and delivers a conflict-arbitrated answer grounded in real, cited web sources — not just model opinions.
 
