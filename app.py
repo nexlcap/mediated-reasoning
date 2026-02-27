@@ -237,7 +237,7 @@ function() {
 _HEADER_HTML = """
 <div class="fusen-header">
   <div class="fusen-title">🔥 Fusen</div>
-  <p class="fusen-sub">Multi-expert analysis for any complex question — business, career, research, strategy, and why the dinosaurs died out.</p>
+  <p class="fusen-sub">Experts debate, revise, and synthesize with live web search — business, career, research, strategy, and why the dinosaurs died out.</p>
 </div>
 """
 
