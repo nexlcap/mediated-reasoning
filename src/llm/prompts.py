@@ -204,8 +204,17 @@ def build_synthesis_prompt(
         '  "synthesis": "Overall synthesized assessment paragraph with inline citations [1][2]",\n'
         '  "recommendations": ["recommendation 1 [3]", ...],\n'
         '  "priority_flags": ["red: critical issue [1]", "yellow: caution", "green: positive"],\n'
+        '  "tldr_label": "Top 3 Actions",\n'
+        '  "tldr_items": ["one punchy insight", "one punchy insight", "one punchy insight"],\n'
         f'{sources_field}'
         '}\n\n'
+        'TLDR FIELDS:\n'
+        '- "tldr_label": pick the label that best fits the question — '
+        '"Top 3 Actions" for decision/execution questions, '
+        '"Top 3 Findings" for research/investigative questions, '
+        '"Top 3 Recommendations" for strategy/advisory questions.\n'
+        '- "tldr_items": exactly 3 tight, citation-free sentences (no [N] references) '
+        'a reader can grasp in 10 seconds — the clearest insight from each of the top three themes.\n\n'
         f'{sources_instruction}'
     )
     return system, user

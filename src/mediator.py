@@ -158,6 +158,8 @@ def _consolidate_sources(
     remapped_synthesis["synthesis"] = _remap_citations(
         synthesis_result.get("synthesis", ""), synthesis_map
     )
+    remapped_synthesis["tldr_label"] = synthesis_result.get("tldr_label", "")
+    remapped_synthesis["tldr_items"] = synthesis_result.get("tldr_items", [])
 
     return global_sources, remapped_outputs, remapped_synthesis
 
@@ -560,6 +562,8 @@ class Mediator:
             conflicts=conflicts,
             synthesis=remapped_synthesis["synthesis"],
             recommendations=remapped_synthesis["recommendations"],
+            tldr_label=remapped_synthesis.get("tldr_label", ""),
+            tldr_items=remapped_synthesis.get("tldr_items", []),
             priority_flags=priority_flags,
             sources=global_sources,
             selection_metadata=self.selection_metadata,
