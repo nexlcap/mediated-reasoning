@@ -201,7 +201,7 @@ def build_synthesis_prompt(
         '"arbitration": {"authority": "cost", "reasoning": "Cost owns financial modelling; market\'s estimate is directional only."}},\n'
         '    ...\n'
         '  ],\n'
-        '  "synthesis": "Overall synthesized assessment paragraph with inline citations [1][2]",\n'
+        '  "synthesis": "2–3 short paragraphs (separated by \\n\\n) synthesising the overall assessment with inline citations [1][2]. Each paragraph covers a distinct theme — e.g. the core finding, the key tension, the outlook.",\n'
         '  "recommendations": ["recommendation 1 [3]", ...],\n'
         '  "priority_flags": ["red: critical issue [1]", "yellow: caution", "green: positive"],\n'
         '  "tldr_label": "Top 3 Actions",\n'
