@@ -331,7 +331,7 @@ def run_analysis(
     problem, model, api_key,
     tavily_key,
     brief_text,
-    document_path=None,
+    document_paths=None,
 ):
     # 10 outputs: status_html · core_out · right_detail_md · right_stats_md
     #             status_group · results_group · follow_qa_md
@@ -353,9 +353,22 @@ def run_analysis(
         yield _error("Please enter your API key."); return
 
     document_context = None
-    if document_path:
+    paths = document_paths if isinstance(document_paths, list) else ([document_paths] if document_paths else [])
+    if paths:
         try:
-            document_context = load_document(document_path)
+            docs = [load_document(p) for p in paths]
+            if len(docs) == 1:
+                document_context = docs[0]
+            else:
+                combined = "\n\n".join(
+                    f"## Document {i}: {d.filename}\n\n{d.content}"
+                    for i, d in enumerate(docs, 1)
+                )
+                document_context = docs[0].__class__(
+                    filename=", ".join(d.filename for d in docs),
+                    content=combined,
+                    extraction_method=docs[0].extraction_method,
+                )
         except DocumentLoadError as e:
             yield _error(f"Document error: {e}"); return
 
@@ -485,10 +498,11 @@ with gr.Blocks(title="Fusen") as demo:
         placeholder="Describe the problem, decision, or document you want analysed — e.g. Should I build a B2B SaaS for restaurant inventory management? · Upload your CV and ask: what are my strengths and gaps, what roles fit, and what salary range should I target?",
         lines=4, elem_id="problem",
     )
-    with gr.Accordion("📎 Attach a document (PDF, TXT, MD, DOCX, PPTX, XLSX)", open=False):
+    with gr.Accordion("📎 Attach documents (PDF, TXT, MD, DOCX, PPTX, XLSX)", open=False):
         document_upload = gr.File(
             show_label=False,
             file_types=[".pdf", ".txt", ".md", ".rst", ".docx", ".pptx", ".xlsx", ".xls"],
+            file_count="multiple",
             type="filepath",
         )
     submit_btn = gr.Button("Analyze", variant="primary", size="lg",
