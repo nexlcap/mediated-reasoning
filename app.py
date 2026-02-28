@@ -471,7 +471,62 @@ def run_followup(question, result, mediator, qa_history: List[QAPair]):
 
 
 # ── UI ────────────────────────────────────────────────────────────────────────
-with gr.Blocks(title="Fusen") as demo:
+_HEAD_META = """
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<!-- Primary SEO -->
+<title>Fusen — Multi-Agent AI Analysis for Business, Career &amp; Strategy</title>
+<meta name="description" content="Fusen runs a panel of AI specialists that independently debate, revise, and synthesize answers with live web search. Ask any complex question — business strategy, career decisions, research, investments — and get a structured, conflict-aware report in minutes.">
+<meta name="keywords" content="multi-agent AI, AI analysis, decision support AI, AI brainstorming, business strategy AI, AI research assistant, expert AI panel, multi-perspective analysis, AI debate, AI synthesis, Fusen AI">
+<meta name="author" content="Fusen">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="https://app.fusen.ai/">
+
+<!-- Open Graph (Facebook, LinkedIn, etc.) -->
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://app.fusen.ai/">
+<meta property="og:title" content="Fusen — Multi-Agent AI Analysis for Business, Career &amp; Strategy">
+<meta property="og:description" content="A panel of AI specialists independently debate, revise, and synthesize answers with live web search. Get structured, conflict-aware analysis for any complex question — business, career, research, or strategy.">
+<meta property="og:site_name" content="Fusen">
+<meta property="og:locale" content="en_US">
+
+<!-- Twitter Card -->
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Fusen — Multi-Agent AI Analysis">
+<meta name="twitter:description" content="AI specialists debate and synthesize expert answers with live web search. Business, career, research, strategy.">
+<meta name="twitter:site" content="@fusenai">
+
+<!-- JSON-LD structured data -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Fusen",
+  "url": "https://app.fusen.ai/",
+  "applicationCategory": "BusinessApplication",
+  "operatingSystem": "Web",
+  "description": "Fusen uses multi-agent mediated reasoning to analyze complex problems from multiple expert perspectives. Specialists independently analyze, revise in light of each other's views, and produce a synthesized report with live web citations.",
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "USD"
+  },
+  "featureList": [
+    "Multi-agent AI panel with dynamically selected specialist roles",
+    "Live web search with DuckDuckGo and optional Tavily integration",
+    "Three-round reasoning: independent analysis, cross-agent revision, synthesis",
+    "Structured conflict extraction and resolution",
+    "Follow-up Q&A grounded in the full analysis context",
+    "Support for PDF, DOCX, XLSX, and other document uploads",
+    "Project memory across sessions",
+    "Multiple LLM backends: Claude, GPT-4o, Gemini, Grok"
+  ]
+}
+</script>
+"""
+
+with gr.Blocks(title="Fusen — Multi-Agent AI Analysis", head=_HEAD_META) as demo:
     result_state      = gr.State(None)
     mediator_state    = gr.State(None)
     qa_history_state  = gr.State([])
