@@ -122,6 +122,26 @@ class ClaudeClient:
             logger.error("API error: %s", e)
             raise
 
+    def chat_stream(self, system_prompt: str, messages: list):
+        """Stream a multi-turn chat response, yielding text chunks."""
+        logger.debug("Sending streaming chat request to %s", self.model)
+        try:
+            response = litellm.completion(
+                model=self.model,
+                max_tokens=4096,
+                messages=[{"role": "system", "content": system_prompt}] + messages,
+                stream=True,
+                timeout=120,
+                **({"api_key": self._api_key} if self._api_key else {}),
+            )
+            for chunk in response:
+                delta = chunk.choices[0].delta.content
+                if delta:
+                    yield delta
+        except Exception as e:
+            logger.error("API error: %s", e)
+            raise
+
     def run_ptc_round(
         self,
         problem: str,

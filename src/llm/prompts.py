@@ -353,18 +353,16 @@ def build_gap_check_prompt(
 
 
 def build_followup_prompt(
-    problem: str, analysis: "FinalAnalysis", question: str
-) -> tuple[str, str]:
-    system = (
-        "You are a senior strategic advisor. You have completed a multi-perspective "
-        "analysis of a problem. The analysis below is your grounding context — use it "
-        "to stay consistent with what was already concluded. Then draw on your own "
-        "expertise and general knowledge to give a concrete, actionable answer to the "
-        "follow-up question. Do not refuse to answer just because the analysis lacks "
-        "specific data — reason from first principles and your domain knowledge where "
-        "needed, and be explicit when you are going beyond the analysis."
-    )
+    problem: str,
+    analysis: "FinalAnalysis",
+    question: str,
+    history: list | None = None,
+) -> tuple[str, list]:
+    """Return (system_prompt, messages) for a multi-turn follow-up conversation.
 
+    `history` is a list of (user_question, assistant_answer) tuples from
+    previous turns. The new `question` is appended as the final user message.
+    """
     # Summarize agent outputs (prefer round 2 when available)
     agent_sections = []
     for output in analysis.agent_outputs:
@@ -385,12 +383,25 @@ def build_followup_prompt(
         f"- {r}" for r in analysis.recommendations
     )
 
-    user = (
+    system = (
+        "You are a senior strategic advisor continuing a conversation grounded in a "
+        "completed multi-perspective analysis. Use the analysis context below to stay "
+        "consistent with what was already concluded, and draw on your own expertise "
+        "and general knowledge to give concrete, actionable answers. Reason from first "
+        "principles when the analysis lacks specific data, and be explicit when you go "
+        "beyond it. Keep replies focused and conversational — the user is in a chat.\n\n"
+        f"=== Analysis context ===\n"
         f"Problem: {problem}\n\n"
         f"Synthesis:\n{analysis.synthesis}\n\n"
         f"Agent summaries:\n{agents_text}\n\n"
         f"Conflicts:\n{conflicts_text}\n\n"
-        f"Recommendations:\n{recommendations_text}\n\n"
-        f"Follow-up question: {question}"
+        f"Recommendations:\n{recommendations_text}"
     )
-    return system, user
+
+    messages: list = []
+    for q, a in (history or []):
+        messages.append({"role": "user", "content": q})
+        messages.append({"role": "assistant", "content": a})
+    messages.append({"role": "user", "content": question})
+
+    return system, messages

@@ -595,7 +595,16 @@ class Mediator:
 
         return result
 
-    def followup(self, analysis: FinalAnalysis, question: str) -> str:
+    def followup_stream(self, analysis: FinalAnalysis, question: str, history=None):
+        """Stream a follow-up answer, yielding text chunks.
+
+        `history` is a list of (user_question, assistant_answer) tuples from
+        previous turns in this conversation.
+        """
         aug = self._augmented_problem(analysis.problem)
-        system, user = build_followup_prompt(aug, analysis, question)
-        return self.client.chat(system, user)
+        system, messages = build_followup_prompt(aug, analysis, question, history)
+        return self.client.chat_stream(system, messages)
+
+    def followup(self, analysis: FinalAnalysis, question: str) -> str:
+        """Return a complete follow-up answer (used by the CLI)."""
+        return "".join(self.followup_stream(analysis, question))

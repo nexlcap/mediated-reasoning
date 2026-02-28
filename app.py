@@ -309,12 +309,6 @@ def _status_html(lines: List[str]) -> str:
     )
 
 
-def _format_follow_qa_md(qa_history: List[QAPair]) -> str:
-    if not qa_history:
-        return ""
-    return "\n\n".join(f"---\n\n**You:** {q}\n\n{a}" for q, a in qa_history)
-
-
 def _format_qa_right(qa_history: List[QAPair]) -> str:
     if not qa_history:
         return "*No follow-up questions yet.*"
@@ -333,12 +327,6 @@ def _show_detail_in_sidebar(result) -> str:
         return f"*Error loading detail: {e}*"
 
 
-def _show_qa_in_sidebar(qa_history) -> str:
-    try:
-        return _format_qa_right(qa_history or [])
-    except Exception as e:
-        return f"*Error: {e}*"
-
 
 # ── Project helpers ───────────────────────────────────────────────────────────
 def save_brief(brief_text: str):
@@ -356,17 +344,17 @@ def run_analysis(
     document_paths=None,
 ):
     # 10 outputs: status_html · core_out · right_detail_md · right_stats_md
-    #             status_group · results_group · follow_qa_md
+    #             status_group · results_group · followup_chatbot
     #             result_state · mediator_state · qa_history_state
 
     def _progress(log_lines):
         return (_status_html(log_lines), "", "", "",
-                gr.update(visible=True), gr.update(visible=False), "",
+                gr.update(visible=True), gr.update(visible=False), [],
                 None, None, [])
 
     def _error(msg):
         return (f"<div class='status-error'>⚠ {msg}</div>", "", "", "",
-                gr.update(visible=True), gr.update(visible=False), "",
+                gr.update(visible=True), gr.update(visible=False), [],
                 None, None, [])
 
     if not problem.strip():
@@ -454,20 +442,47 @@ def run_analysis(
             sources_md = format_sources_md(result)
             right_top  = stats + ("\n\n---\n\n" + sources_md if sources_md else "")
             yield ("", core_md, detail_md, right_top,
-                   gr.update(visible=False), gr.update(visible=True), "",
+                   gr.update(visible=False), gr.update(visible=True), [],
                    result, mediator, [])
             return
+
+
+def _to_chatbot_msgs(qa_history: List[QAPair]) -> list:
+    """Convert (question, answer) tuples to Gradio 6 message dicts."""
+    msgs = []
+    for q, a in qa_history:
+        msgs.append({"role": "user",      "content": q})
+        msgs.append({"role": "assistant", "content": a})
+    return msgs
 
 
 def run_followup(question, result, mediator, qa_history: List[QAPair]):
     history = list(qa_history or [])
     if result is None or mediator is None:
-        return _format_follow_qa_md(history), history, question, gr.update()
-    if not question.strip():
-        return _format_follow_qa_md(history), history, "", gr.update()
-    answer  = mediator.followup(result, question.strip())
-    updated = history + [(question.strip(), ANSI_RE.sub('', answer))]
-    return _format_follow_qa_md(updated), updated, "", _format_qa_right(updated)
+        yield _to_chatbot_msgs(history), history, question
+        return
+    q = question.strip()
+    if not q:
+        yield _to_chatbot_msgs(history), history, ""
+        return
+
+    # Show user message immediately; assistant slot will fill via streaming
+    yield _to_chatbot_msgs(history) + [{"role": "user", "content": q}], history, ""
+
+    # Stream response token by token
+    full = ""
+    for chunk in mediator.followup_stream(result, q, history):
+        full += ANSI_RE.sub('', chunk)
+        yield (
+            _to_chatbot_msgs(history)
+            + [{"role": "user",      "content": q},
+               {"role": "assistant", "content": full}],
+            history,
+            "",
+        )
+
+    final = history + [(q, full)]
+    yield _to_chatbot_msgs(final), final, ""
 
 
 # ── UI ────────────────────────────────────────────────────────────────────────
@@ -526,7 +541,7 @@ _HEAD_META = """
 </script>
 """
 
-with gr.Blocks(title="Fusen — Multi-Agent AI Analysis", head=_HEAD_META) as demo:
+with gr.Blocks(title="Fusen — Multi-Agent AI Analysis") as demo:
     result_state      = gr.State(None)
     mediator_state    = gr.State(None)
     qa_history_state  = gr.State([])
@@ -592,12 +607,17 @@ with gr.Blocks(title="Fusen — Multi-Agent AI Analysis", head=_HEAD_META) as de
     with gr.Group(visible=False) as results_group:
         core_out = gr.Markdown()
         with gr.Row():
-            show_detail_btn = gr.Button("📊 Analysis detail",   size="sm",
+            show_detail_btn = gr.Button("📊 Analysis detail", size="sm",
                                         variant="secondary", elem_id="show-detail")
-            show_qa_btn     = gr.Button("💬 Follow-up history", size="sm",
-                                        variant="secondary", elem_id="show-qa")
 
-        follow_qa_md = gr.Markdown("", elem_classes=["follow-qa-area"])
+        followup_chatbot = gr.Chatbot(
+            label="Follow-up questions",
+            show_label=False,
+            height=400,
+            elem_classes=["follow-qa-area"],
+            layout="bubble",
+            buttons=["copy"],
+        )
 
         with gr.Row(elem_classes=["followup-row"]):
             followup_input = gr.Textbox(
@@ -623,8 +643,8 @@ with gr.Blocks(title="Fusen — Multi-Agent AI Analysis", head=_HEAD_META) as de
     submit_btn.click(
         fn=run_analysis,
         inputs=[
-            problem_input, 
-            model_dd, 
+            problem_input,
+            model_dd,
             api_key_input,
             tavily_input,
             brief_area,
@@ -632,13 +652,13 @@ with gr.Blocks(title="Fusen — Multi-Agent AI Analysis", head=_HEAD_META) as de
         ],
         outputs=[
             status_html, core_out, right_detail_md, right_stats_md,
-            status_group, results_group, follow_qa_md,
+            status_group, results_group, followup_chatbot,
             result_state, mediator_state, qa_history_state,
         ],
     )
 
     _fu_in  = [followup_input, result_state, mediator_state, qa_history_state]
-    _fu_out = [follow_qa_md, qa_history_state, followup_input, right_detail_md]
+    _fu_out = [followup_chatbot, qa_history_state, followup_input]
 
     followup_btn.click(fn=run_followup, inputs=_fu_in, outputs=_fu_out)
     followup_input.submit(fn=run_followup, inputs=_fu_in, outputs=_fu_out)
@@ -646,12 +666,9 @@ with gr.Blocks(title="Fusen — Multi-Agent AI Analysis", head=_HEAD_META) as de
     show_detail_btn.click(
         fn=_show_detail_in_sidebar, inputs=[result_state], outputs=[right_detail_md],
     )
-    show_qa_btn.click(
-        fn=_show_qa_in_sidebar, inputs=[qa_history_state], outputs=[right_detail_md],
-    )
     save_memory_btn.click(
         fn=save_brief, inputs=[brief_area], outputs=[brief_download],
     )
 
 demo.launch(server_name="0.0.0.0", server_port=7860, ssr_mode=False,
-            theme=gr.themes.Soft(), css=_CSS, js=_JS)
+            theme=gr.themes.Soft(), css=_CSS, js=_JS, head=_HEAD_META)
