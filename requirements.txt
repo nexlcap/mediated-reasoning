@@ -2,4 +2,7 @@ setuptools
 git+https://github.com/nexlcap/mediated-reasoning.git@92e43bdf89fb5abbaac75b337600701d05b6a667
 gradio>=6.6.0
 pypdf>=4.0.0
+python-docx>=1.1.0
+python-pptx>=1.0.0
+openpyxl>=3.1.0
 audioop-lts; python_version >= "3.13"
