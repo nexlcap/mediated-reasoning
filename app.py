@@ -59,9 +59,9 @@ body,
 }
 
 /* ── App header ── */
-.fusen-header { padding: 20px 0 8px 0; }
+.fusen-header { padding: 8px 0 4px 0; }
 .fusen-title {
-    font-size: 1.9em;
+    font-size: 1.7em;
     font-weight: 700;
     background: linear-gradient(135deg, #f97316 0%, #ec4899 45%, #8b5cf6 100%);
     -webkit-background-clip: text;
@@ -153,7 +153,7 @@ body,
 
 /* ── ChatGPT-style input pill ── */
 .followup-row {
-    margin-top: 12px !important;
+    margin-top: 6px !important;
     padding: 4px 6px 4px 4px !important;
     background: var(--background-fill-primary, #fff) !important;
     border: 1.5px solid var(--border-color-primary, #d9d9e3) !important;
@@ -249,7 +249,7 @@ body,
     background: transparent !important;
 }
 #main-tabs > div:not(.tab-nav) {
-    padding-top: 16px !important;
+    padding-top: 8px !important;
     border: none !important;
     box-shadow: none !important;
     background: transparent !important;
@@ -383,6 +383,18 @@ body,
     box-shadow: 0 24px 64px rgba(0, 0, 0, 0.4) !important;
     position: relative !important;
     inset: unset !important;
+}
+
+/* ── Compact on short / narrow viewports ── */
+@media (max-height: 750px) {
+    .fusen-header    { padding: 4px 0 2px 0 !important; }
+    .fusen-sub       { display: none !important; }
+}
+@media (max-width: 640px) {
+    .fusen-sub       { display: none !important; }
+    .fusen-title     { font-size: 1.4em !important; }
+    .followup-row    { margin-top: 4px !important; }
+    .analyze-btn button { font-size: 0.85em !important; }
 }
 """
 
@@ -1103,7 +1115,7 @@ with gr.Blocks(title="Fusen — Multi-Agent AI Analysis") as demo:
         with gr.TabItem("💬 Chat", id="chat-tab"):
             followup_chatbot = gr.Chatbot(
                 show_label=False,
-                height=400,
+                height=300,
                 elem_classes=["follow-qa-area"],
                 layout="bubble",
                 buttons=["copy"],
@@ -1128,7 +1140,7 @@ with gr.Blocks(title="Fusen — Multi-Agent AI Analysis") as demo:
                 followup_btn = gr.Button("↑", scale=0, min_width=32,
                                          variant="secondary", elem_id="followup-btn")
 
-            submit_btn = gr.Button("Start Research", variant="primary", size="lg",
+            submit_btn = gr.Button("Start Research", variant="primary", size="md",
                                    elem_classes=["analyze-btn"], elem_id="analyze-btn")
 
         with gr.TabItem("📊 Results", id="results-tab"):
