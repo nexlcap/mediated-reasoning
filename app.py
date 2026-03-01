@@ -251,41 +251,38 @@ body,
     min-height: 40px !important;
 }
 
-/* ── 📎 upload button — ghost circle inside pill ── */
-.chat-upload-btn button {
+/* ── pill icon buttons — shared geometry ── */
+.chat-upload-btn button,
+#followup-btn button {
     border-radius: 50% !important;
-    background: transparent !important;
     border: none !important;
     box-shadow: none !important;
-    width: 34px !important;
-    min-width: 34px !important;
-    max-width: 34px !important;
-    height: 34px !important;
+    width: 32px !important;
+    min-width: 32px !important;
+    max-width: 32px !important;
+    height: 32px !important;
     padding: 0 !important;
-    color: var(--body-text-color-subdued, #888) !important;
-    font-size: 1.05em !important;
     flex-shrink: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    font-size: 1.0em !important;
     transition: background 0.12s ease !important;
+}
+
+/* 📎 upload — ghost */
+.chat-upload-btn button {
+    background: transparent !important;
+    color: var(--body-text-color-subdued, #888) !important;
 }
 .chat-upload-btn button:hover {
     background: var(--background-fill-secondary, #f3f4f6) !important;
 }
 
-/* ── ↑ send button — solid dark circle inside pill ── */
+/* ↑ send — solid dark */
 #followup-btn button {
-    border-radius: 50% !important;
     background: #1a1a1a !important;
     color: #fff !important;
-    border: none !important;
-    box-shadow: none !important;
-    width: 34px !important;
-    min-width: 34px !important;
-    max-width: 34px !important;
-    height: 34px !important;
-    padding: 0 !important;
-    font-size: 1.0em !important;
-    flex-shrink: 0 !important;
-    transition: background 0.12s ease !important;
 }
 #followup-btn button:hover {
     background: #333 !important;
@@ -1095,7 +1092,8 @@ with gr.Blocks(title="Fusen — Multi-Agent AI Analysis") as demo:
                     file_types=[".pdf", ".txt", ".md", ".rst", ".docx", ".pptx", ".xlsx", ".xls"],
                     file_count="multiple",
                     type="filepath",
-                    scale=1,
+                    scale=0,
+                    min_width=32,
                     elem_classes=["chat-upload-btn"],
                     elem_id="chat-upload",
                 )
@@ -1103,8 +1101,8 @@ with gr.Blocks(title="Fusen — Multi-Agent AI Analysis") as demo:
                     show_label=False, placeholder="Ask a question or describe your problem…",
                     lines=1, max_lines=6, scale=8, elem_id="followup",
                 )
-                followup_btn = gr.Button("↑", scale=1, variant="secondary",
-                                         elem_id="followup-btn")
+                followup_btn = gr.Button("↑", scale=0, min_width=32,
+                                         variant="secondary", elem_id="followup-btn")
 
             submit_btn = gr.Button("Start Research", variant="primary", size="lg",
                                    elem_classes=["analyze-btn"], elem_id="analyze-btn")
