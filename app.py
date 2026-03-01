@@ -8,6 +8,7 @@ from typing import List, Optional
 import gradio as gr
 
 from src.llm.client import ClaudeClient
+from src.llm.prompts import build_pre_research_prompt
 from src.mediator import Mediator
 from src.project_memory import QAPair
 from src.utils.document_loader import load_document, DocumentLoadError
@@ -18,6 +19,10 @@ from src.utils.formatters import (
 )
 
 ANSI_RE = re.compile(r'\033\[[0-9;]*m')
+
+_START_RESEARCH_RE = re.compile(
+    r'\b(start|begin|run|launch|kick\s*off|do)\b.{0,25}\bresearch\b', re.I
+)
 
 MODELS = [
     "claude-sonnet-4-6",
@@ -161,36 +166,51 @@ body,
     min-width: 200px !important;
     max-width: 650px !important;
 }
-#detail-sidebar.open {
-    direction: rtl !important;
-    resize: horizontal !important;
-    overflow: auto !important;
-    min-width: 200px !important;
-    max-width: 650px !important;
+/* ── Main tabs — polished underline style ── */
+#main-tabs {
+    margin-top: 8px;
+    border: none !important;
+    background: transparent !important;
+    box-shadow: none !important;
 }
-#detail-sidebar.open > * { direction: ltr !important; }
-
-/* ── Document upload — keep "add more files" button full-width and visible ── */
-#doc-upload label:has(input[type="file"]) {
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    width: 100% !important;
-    min-height: 44px !important;
-    border: 1.5px dashed var(--border-color-primary, #d1d5db) !important;
-    border-radius: 8px !important;
-    padding: 8px 16px !important;
-    margin-top: 6px !important;
-    cursor: pointer !important;
-    font-size: 0.88em !important;
+#main-tabs > .tab-nav {
+    border-bottom: 2px solid var(--border-color-primary, #e5e7eb) !important;
+    background: transparent !important;
+    padding: 0 !important;
+    gap: 4px !important;
+    box-shadow: none !important;
+}
+#main-tabs > .tab-nav > button {
+    font-size: 0.95em !important;
+    font-weight: 500 !important;
+    padding: 10px 22px !important;
+    border: none !important;
+    border-bottom: 2px solid transparent !important;
+    margin-bottom: -2px !important;
+    border-radius: 0 !important;
+    background: transparent !important;
     color: var(--body-text-color-subdued, #888) !important;
-    box-sizing: border-box !important;
-    transition: border-color 0.15s, color 0.15s !important;
+    transition: color 0.15s ease, border-color 0.15s ease !important;
+    letter-spacing: 0.01em !important;
+    box-shadow: none !important;
 }
-#doc-upload label:has(input[type="file"]):hover {
-    border-color: #f97316 !important;
+#main-tabs > .tab-nav > button:hover {
+    color: var(--body-text-color, #333) !important;
+    background: transparent !important;
+}
+#main-tabs > .tab-nav > button.selected {
     color: #f97316 !important;
+    border-bottom-color: #f97316 !important;
+    font-weight: 600 !important;
+    background: transparent !important;
 }
+#main-tabs > div:not(.tab-nav) {
+    padding-top: 16px !important;
+    border: none !important;
+    box-shadow: none !important;
+    background: transparent !important;
+}
+
 
 /* ── Memory buttons — match input field height & font ── */
 .memory-btns button {
@@ -198,6 +218,56 @@ body,
     height: 40px !important;
     min-height: 40px !important;
 }
+
+/* ── 📎 upload button — icon-only, match send button size ── */
+.chat-upload-btn button {
+    min-width: 44px !important;
+    max-width: 44px !important;
+    padding: 0 !important;
+}
+
+/* ── Research sidebar — section header weight ── */
+#synthesis-section .label-wrap button,
+#stats-section     .label-wrap button,
+#breakdown-section .label-wrap button {
+    font-weight: 600 !important;
+}
+
+/* ── Export ── */
+.export-trigger-row {
+    margin-top: 16px;
+    justify-content: flex-end !important;
+}
+#export-btn button {
+    font-size: 0.88em !important;
+    font-weight: 500 !important;
+    letter-spacing: 0.02em !important;
+    border-radius: 8px !important;
+    padding: 0 18px !important;
+    height: 36px !important;
+    min-height: 36px !important;
+}
+@keyframes exportFadeIn {
+    from { opacity: 0; transform: translateY(-6px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+#export-options {
+    margin-top: 10px;
+    padding: 20px 20px 16px !important;
+    background: var(--background-fill-secondary, #f9fafb) !important;
+    border: 1px solid var(--border-color-primary, #e5e7eb) !important;
+    border-radius: 12px !important;
+    box-shadow: 0 4px 18px rgba(0,0,0,0.07) !important;
+    animation: exportFadeIn 0.16s ease both;
+}
+#export-options label {
+    font-size: 0.82em !important;
+    font-weight: 600 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.055em !important;
+    color: var(--body-text-color-subdued, #888) !important;
+}
+.export-actions { margin-top: 4px !important; }
 
 /* ── Modals ── */
 .modal-overlay > div.gr-group,
@@ -237,9 +307,7 @@ function() {
         "save-session":     "Download the current project memory as memory.md",
         "model-dd":         "LLM used for synthesis and the final report",
         "tavily":           "Optional Tavily premium search key — higher-quality citations than the default DuckDuckGo fallback",
-        "problem":          "State the problem, idea, or decision you want analysed from multiple expert angles",
-        "analyze-btn":      "Run a full multi-specialist analysis (typically 30–120 s depending on model and depth)",
-        "show-detail":      "Load the specialist-by-specialist breakdown into the right sidebar",
+        "analyze-btn":      "Synthesize your chat into a problem statement and run the full multi-specialist analysis",
         "show-qa":          "Load the full follow-up Q&A history into the right sidebar",
         "followup":         "Ask a follow-up question — the analysis context is kept so answers are grounded",
         "followup-btn":     "Send your follow-up question"
@@ -291,6 +359,28 @@ def _parse_weights(weights_str: str) -> dict:
 
 
 
+def _load_doc_context(document_paths):
+    """Load documents from paths. Returns (DocumentContext | None, error_str | None)."""
+    paths = document_paths if isinstance(document_paths, list) else ([document_paths] if document_paths else [])
+    if not paths:
+        return None, None
+    try:
+        docs = [load_document(p) for p in paths]
+        if len(docs) == 1:
+            return docs[0], None
+        combined = "\n\n".join(
+            f"## Document {i}: {d.filename}\n\n{d.content}"
+            for i, d in enumerate(docs, 1)
+        )
+        return docs[0].__class__(
+            filename=", ".join(d.filename for d in docs),
+            content=combined,
+            extraction_method=docs[0].extraction_method,
+        ), None
+    except DocumentLoadError as e:
+        return None, str(e)
+
+
 def _status_html(lines: List[str]) -> str:
     if not lines:
         return ""
@@ -328,6 +418,40 @@ def _show_detail_in_sidebar(result) -> str:
 
 
 
+def _error_tuple(msg):
+    """Return 9-tuple matching run_analysis error output."""
+    return (f"<div class='status-error'>⚠ {msg}</div>",
+            gr.update(), gr.update(), gr.update(),
+            gr.update(), None, None, [],
+            gr.update(selected="results-tab"))
+
+
+def _extract_problem(history) -> str:
+    """Derive a simple problem string from conversation history."""
+    if not history:
+        return ""
+    return " ".join(q for q, _ in history if q)
+
+
+def _synthesize_problem(history, model, api_key) -> str:
+    """Ask the LLM to condense the pre-research conversation into a problem statement."""
+    turns = []
+    for q, a in (history or []):
+        turns.append(f"User: {q}")
+        if a:
+            turns.append(f"Assistant: {a}")
+    conversation = "\n".join(turns) or "(no conversation)"
+    system = (
+        "You are a concise problem distiller. Given a short pre-research conversation, "
+        "write a single clear problem statement (2–4 sentences) suitable as input to a "
+        "multi-agent analysis pipeline. Capture the core question, key constraints, and "
+        "any relevant context. Output the problem statement only — no preamble."
+    )
+    user = f"Conversation:\n{conversation}\n\nProblem statement:"
+    client = ClaudeClient(model=model, api_key=api_key.strip())
+    return client.chat(system, user)
+
+
 # ── Project helpers ───────────────────────────────────────────────────────────
 def save_brief(brief_text: str):
     tmp = Path(tempfile.mkdtemp())
@@ -343,44 +467,30 @@ def run_analysis(
     brief_text,
     document_paths=None,
 ):
-    # 10 outputs: status_html · core_out · right_detail_md · right_stats_md
-    #             status_group · results_group · followup_chatbot
-    #             result_state · mediator_state · qa_history_state
+    # 9 outputs: status_html · core_out · right_detail_md · right_stats_md ·
+    #            followup_chatbot · result_state · mediator_state · qa_history_state · main_tabs
 
     def _progress(log_lines):
-        return (_status_html(log_lines), "", "", "",
-                gr.update(visible=True), gr.update(visible=False), [],
-                None, None, [])
+        return (_status_html(log_lines),
+                gr.update(), gr.update(), gr.update(),  # core/detail/stats — no-op
+                gr.update(),                             # chatbot — preserve pre-research msgs
+                None, None, [],
+                gr.update(selected="results-tab"))
 
     def _error(msg):
-        return (f"<div class='status-error'>⚠ {msg}</div>", "", "", "",
-                gr.update(visible=True), gr.update(visible=False), [],
-                None, None, [])
+        return (f"<div class='status-error'>⚠ {msg}</div>",
+                gr.update(), gr.update(), gr.update(),
+                gr.update(), None, None, [],
+                gr.update(selected="results-tab"))
 
     if not problem.strip():
         yield _error("Please enter a problem."); return
     if not api_key.strip():
         yield _error("Please enter your API key."); return
 
-    document_context = None
-    paths = document_paths if isinstance(document_paths, list) else ([document_paths] if document_paths else [])
-    if paths:
-        try:
-            docs = [load_document(p) for p in paths]
-            if len(docs) == 1:
-                document_context = docs[0]
-            else:
-                combined = "\n\n".join(
-                    f"## Document {i}: {d.filename}\n\n{d.content}"
-                    for i, d in enumerate(docs, 1)
-                )
-                document_context = docs[0].__class__(
-                    filename=", ".join(d.filename for d in docs),
-                    content=combined,
-                    extraction_method=docs[0].extraction_method,
-                )
-        except DocumentLoadError as e:
-            yield _error(f"Document error: {e}"); return
+    document_context, doc_err = _load_doc_context(document_paths)
+    if doc_err:
+        yield _error(f"Document error: {doc_err}"); return
 
     effective_context = ""
     if brief_text and brief_text.strip():
@@ -442,8 +552,8 @@ def run_analysis(
             sources_md = format_sources_md(result)
             right_top  = stats + ("\n\n---\n\n" + sources_md if sources_md else "")
             yield ("", core_md, detail_md, right_top,
-                   gr.update(visible=False), gr.update(visible=True), [],
-                   result, mediator, [])
+                   [], result, mediator, [],
+                   gr.update(selected="results-tab"))
             return
 
 
@@ -456,33 +566,351 @@ def _to_chatbot_msgs(qa_history: List[QAPair]) -> list:
     return msgs
 
 
-def run_followup(question, result, mediator, qa_history: List[QAPair]):
+def run_followup(
+    question, result, mediator, qa_history: List[QAPair],
+    model, api_key, brief_text, document_paths,
+):
+    # Outputs: followup_chatbot · qa_history_state · followup_input · analysis_trigger_state
     history = list(qa_history or [])
-    if result is None or mediator is None:
-        yield _to_chatbot_msgs(history), history, question
-        return
-    q = question.strip()
+    q = (question or "").strip()
     if not q:
-        yield _to_chatbot_msgs(history), history, ""
+        yield _to_chatbot_msgs(history), history, "", False
         return
 
-    # Show user message immediately; assistant slot will fill via streaming
-    yield _to_chatbot_msgs(history) + [{"role": "user", "content": q}], history, ""
+    if result is None:
+        # ── Pre-research phase ────────────────────────────────────────────────
+        if not api_key or not api_key.strip():
+            yield (
+                _to_chatbot_msgs(history)
+                + [{"role": "user",      "content": q},
+                   {"role": "assistant", "content": "⚠ Please enter your API key in the settings panel before chatting."}],
+                history, "", False,
+            )
+            return
 
-    # Stream response token by token
-    full = ""
-    for chunk in mediator.followup_stream(result, q, history):
-        full += ANSI_RE.sub('', chunk)
-        yield (
-            _to_chatbot_msgs(history)
-            + [{"role": "user",      "content": q},
-               {"role": "assistant", "content": full}],
-            history,
-            "",
+        # Phrase detection — auto-trigger analysis
+        if _START_RESEARCH_RE.search(q):
+            ack_msgs = (
+                _to_chatbot_msgs(history)
+                + [{"role": "user",      "content": q},
+                   {"role": "assistant", "content": "Starting the analysis now! 🔬 One moment…"}]
+            )
+            new_history = history + [(q, "Starting the analysis now! 🔬 One moment…")]
+            yield ack_msgs, new_history, "", True
+            return
+
+        doc_ctx, doc_err = _load_doc_context(document_paths)
+        if doc_err:
+            yield (
+                _to_chatbot_msgs(history)
+                + [{"role": "user",      "content": q},
+                   {"role": "assistant", "content": f"⚠ Document error: {doc_err}"}],
+                history, "", False,
+            )
+            return
+
+        doc_text = doc_ctx.content if doc_ctx else None
+        effective_context = (brief_text or "").strip() or None
+        problem_str = _extract_problem(history)
+        system, messages = build_pre_research_prompt(
+            problem_str, doc_text, effective_context, q, history
         )
+        client = ClaudeClient(model=model, api_key=api_key.strip())
 
-    final = history + [(q, full)]
-    yield _to_chatbot_msgs(final), final, ""
+        # Show user message immediately
+        yield _to_chatbot_msgs(history) + [{"role": "user", "content": q}], history, "", False
+
+        full = ""
+        for chunk in client.chat_stream(system, messages):
+            full += ANSI_RE.sub('', chunk)
+            yield (
+                _to_chatbot_msgs(history)
+                + [{"role": "user",      "content": q},
+                   {"role": "assistant", "content": full}],
+                history, "", False,
+            )
+
+        final = history + [(q, full)]
+        yield _to_chatbot_msgs(final), final, "", False
+
+    else:
+        # ── Post-research phase ───────────────────────────────────────────────
+        if mediator is None:
+            yield _to_chatbot_msgs(history), history, "", False
+            return
+
+        # Show user message immediately; assistant slot will fill via streaming
+        yield _to_chatbot_msgs(history) + [{"role": "user", "content": q}], history, "", False
+
+        full = ""
+        for chunk in mediator.followup_stream(result, q, history):
+            full += ANSI_RE.sub('', chunk)
+            yield (
+                _to_chatbot_msgs(history)
+                + [{"role": "user",      "content": q},
+                   {"role": "assistant", "content": full}],
+                history, "", False,
+            )
+
+        final = history + [(q, full)]
+        yield _to_chatbot_msgs(final), final, "", False
+
+
+def maybe_start_analysis(trigger, history, model, api_key, tavily_key, brief_text, doc_paths):
+    """Fired after run_followup via .then(); only acts when trigger=True."""
+    # 10 outputs: 9 from run_analysis + analysis_trigger_state
+    _no_op = tuple(gr.update() for _ in range(9)) + (False,)
+    if not trigger:
+        yield _no_op
+        return
+    if not api_key or not api_key.strip():
+        yield _no_op
+        return
+    problem = _synthesize_problem(history, model, api_key)
+    for update in run_analysis(problem, model, api_key, tavily_key, brief_text, doc_paths):
+        yield update + (False,)
+
+
+def _start_research(history, model, api_key, tavily_key, brief_text, doc_paths):
+    """Fired by 'Start Research' button click."""
+    if not history:
+        yield _error_tuple("Please describe your problem in the chat before starting research.")
+        return
+    if not api_key or not api_key.strip():
+        yield _error_tuple("Please enter your API key.")
+        return
+    problem = _synthesize_problem(history, model, api_key)
+    yield from run_analysis(problem, model, api_key, tavily_key, brief_text, doc_paths)
+
+
+def _handle_chat_upload(new_files, existing_paths, chatbot_msgs):
+    """Handle 📎 UploadButton — append file paths to documents_state and ack in chat."""
+    paths = list(existing_paths or [])
+    if isinstance(new_files, list):
+        paths.extend(new_files)
+    else:
+        paths.append(new_files)
+    uploaded = new_files if isinstance(new_files, list) else [new_files]
+    names = ", ".join(Path(p).name for p in uploaded if p)
+    msg = {"role": "assistant", "content": f"📎 Attached: **{names}**"}
+    return paths, (chatbot_msgs or []) + [msg]
+
+
+# ── Export ────────────────────────────────────────────────────────────────────
+_ANSI_RE2 = re.compile(r'\033\[[0-9;]*m')
+_HTML_ENT_RE = re.compile(r'&ensp;|&nbsp;')
+_INLINE_MD_RE = re.compile(r'(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)')
+
+
+def _clean_md(text: str) -> str:
+    """Strip ANSI codes and normalise HTML entities."""
+    text = _ANSI_RE2.sub('', text)
+    text = _HTML_ENT_RE.sub(' ', text)
+    text = re.sub(r'&amp;', '&', text)
+    text = re.sub(r'&lt;', '<', text)
+    text = re.sub(r'&gt;', '>', text)
+    return text
+
+
+def _md_to_plain(text: str) -> str:
+    """Reduce markdown to readable plain text."""
+    text = re.sub(r'^\s*#{1,6}\s+', '', text, flags=re.MULTILINE)
+    text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)
+    text = re.sub(r'\*([^*]+)\*', r'\1', text)
+    text = re.sub(r'`([^`]+)`', r'\1', text)
+    text = re.sub(r'^\s*>\s+', '  ', text, flags=re.MULTILINE)
+    text = re.sub(r'^\s*[-*]\s+', '• ', text, flags=re.MULTILINE)
+    text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
+    text = re.sub(r'^---+$', '', text, flags=re.MULTILINE)
+    return text
+
+
+def _build_export_parts(result, sections: list) -> list:
+    """Return [(title, markdown_text)] for each selected section."""
+    if result is None:
+        return []
+    parts = []
+    if "Synthesis" in sections:
+        md = format_core_md(result)
+        if md.strip():
+            parts.append(("Synthesis", md))
+    if "Stats & Sources" in sections:
+        q = result.quality
+        te = {"good": "✅", "degraded": "⚠️", "poor": "❌"}.get(q.tier if q else "", "")
+        lines = []
+        if q:
+            lines.append(f"**Quality:** {te} {q.tier} (score: {q.score:.2f})")
+        if result.timing:
+            lines.append(f"**Total time:** {result.timing.total_s:.0f}s")
+        if result.token_usage:
+            total_tok = result.token_usage.total_input + result.token_usage.total_output
+            lines.append(f"**Tokens used:** {total_tok:,}")
+        sources_md = format_sources_md(result)
+        content = "\n\n".join(lines)
+        if sources_md:
+            content += "\n\n---\n\n" + sources_md
+        if content.strip():
+            parts.append(("Stats & Sources", content))
+    if "Agent Breakdown" in sections:
+        md = format_detail_md(result, detailed=False)
+        if md.strip():
+            parts.append(("Agent Breakdown", md))
+    return parts
+
+
+# ── Text export ──
+def _export_as_text(parts: list) -> gr.update:
+    lines = ["# Fusen Analysis Report", ""]
+    for title, md in parts:
+        lines += [f"## {title}", "", _clean_md(md), "", "---", ""]
+    tmp = Path(tempfile.mktemp(suffix=".md"))
+    tmp.write_text("\n".join(lines), encoding="utf-8")
+    return gr.update(visible=True, value=str(tmp))
+
+
+# ── Word export ──
+def _add_inline_runs(para, text: str):
+    """Write **bold**, *italic*, `code` spans as Word runs."""
+    for chunk in _INLINE_MD_RE.split(text):
+        if chunk.startswith('**') and chunk.endswith('**') and len(chunk) > 4:
+            para.add_run(chunk[2:-2]).bold = True
+        elif chunk.startswith('*') and chunk.endswith('*') and len(chunk) > 2:
+            para.add_run(chunk[1:-1]).italic = True
+        elif chunk.startswith('`') and chunk.endswith('`') and len(chunk) > 2:
+            run = para.add_run(chunk[1:-1])
+            run.font.name = 'Courier New'
+        elif chunk:
+            para.add_run(chunk)
+
+
+def _md_body_to_docx(doc, md: str):
+    for line in md.splitlines():
+        s = line.strip()
+        if not s:
+            continue
+        if re.match(r'^---+$', s):
+            doc.add_paragraph()
+            continue
+        m = re.match(r'^(#{1,4})\s+(.*)', s)
+        if m:
+            doc.add_heading(m.group(2), min(len(m.group(1)), 4))
+            continue
+        m = re.match(r'^>\s+(.*)', s)
+        if m:
+            p = doc.add_paragraph(style='Quote')
+            _add_inline_runs(p, m.group(1))
+            continue
+        m = re.match(r'^[-*]\s+(.*)', s)
+        if m:
+            p = doc.add_paragraph(style='List Bullet')
+            _add_inline_runs(p, m.group(1))
+            continue
+        p = doc.add_paragraph()
+        _add_inline_runs(p, s)
+
+
+def _export_as_docx(parts: list) -> gr.update:
+    from docx import Document
+    from docx.shared import RGBColor
+    doc = Document()
+    heading = doc.add_heading("Fusen Analysis Report", 0)
+    for run in heading.runs:
+        run.font.color.rgb = RGBColor(0xF9, 0x73, 0x16)
+    for title, md in parts:
+        doc.add_heading(title, 1)
+        _md_body_to_docx(doc, _clean_md(md))
+    tmp = Path(tempfile.mktemp(suffix=".docx"))
+    doc.save(str(tmp))
+    return gr.update(visible=True, value=str(tmp))
+
+
+# ── PDF export ──
+_PDF_FONT_PAIRS = [
+    ("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
+    ("/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+     "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"),
+    ("/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+     "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf"),
+    ("/System/Library/Fonts/Supplemental/Arial.ttf",
+     "/System/Library/Fonts/Supplemental/Arial Bold.ttf"),
+    ("C:/Windows/Fonts/arial.ttf", "C:/Windows/Fonts/arialbd.ttf"),
+]
+
+
+def _export_as_pdf(parts: list) -> gr.update:
+    from fpdf import FPDF
+    from fpdf.enums import XPos, YPos
+
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+    pdf.set_left_margin(20)
+    pdf.set_right_margin(20)
+    pdf.set_x(20)
+
+    fn = "Helvetica"
+    for reg, bold in _PDF_FONT_PAIRS:
+        if Path(reg).exists():
+            pdf.add_font("Body", fname=reg)
+            pdf.add_font("Body", style="B",
+                         fname=bold if Path(bold).exists() else reg)
+            fn = "Body"
+            break
+
+    def safe(t: str) -> str:
+        if fn == "Helvetica":
+            return t.encode("latin-1", errors="replace").decode("latin-1")
+        return t
+
+    def mc(text, h=5, **kw):
+        """multi_cell with cursor always reset to l_margin."""
+        pdf.multi_cell(0, h, text,
+                       new_x=XPos.LMARGIN, new_y=YPos.NEXT, **kw)
+
+    # Document title
+    pdf.set_font(fn, style="B", size=18)
+    pdf.set_text_color(249, 115, 22)
+    mc(safe("Fusen Analysis Report"), h=9)
+    pdf.set_text_color(30, 30, 30)
+    pdf.ln(5)
+
+    for title, md in parts:
+        # Section heading bar
+        pdf.set_font(fn, style="B", size=12)
+        pdf.set_fill_color(243, 244, 246)
+        pdf.set_text_color(50, 50, 70)
+        mc(safe(title), h=8, fill=True)
+        pdf.set_text_color(30, 30, 30)
+        pdf.ln(3)
+
+        # Body — strip markdown, render line by line
+        plain = _md_to_plain(_clean_md(md))
+        pdf.set_font(fn, size=10)
+        for line in plain.splitlines():
+            s = line.strip()
+            if not s:
+                pdf.ln(2)
+                continue
+            mc(safe(s))
+        pdf.ln(6)
+
+    tmp = Path(tempfile.mktemp(suffix=".pdf"))
+    pdf.output(str(tmp))
+    return gr.update(visible=True, value=str(tmp))
+
+
+def _export_analysis(result, sections, fmt):
+    if result is None or not sections:
+        return gr.update(visible=False)
+    parts = _build_export_parts(result, sections)
+    if not parts:
+        return gr.update(visible=False)
+    if fmt == "Text":
+        return _export_as_text(parts)
+    if fmt == "Word":
+        return _export_as_docx(parts)
+    return _export_as_pdf(parts)
 
 
 # ── UI ────────────────────────────────────────────────────────────────────────
@@ -542,9 +970,12 @@ _HEAD_META = """
 """
 
 with gr.Blocks(title="Fusen — Multi-Agent AI Analysis") as demo:
-    result_state      = gr.State(None)
-    mediator_state    = gr.State(None)
-    qa_history_state  = gr.State([])
+    result_state           = gr.State(None)
+    mediator_state         = gr.State(None)
+    qa_history_state       = gr.State([])
+    documents_state        = gr.State([])
+    analysis_trigger_state = gr.State(False)
+    export_panel_state     = gr.State(False)
 
     # ── Left Sidebar ──────────────────────────────────────────────────────────
     with gr.Sidebar(label="Settings", open=True, position="left", width=320,
@@ -576,56 +1007,78 @@ with gr.Blocks(title="Fusen — Multi-Agent AI Analysis") as demo:
         brief_area = gr.Textbox(visible=False, elem_id="memory")
 
 
-    # ── Right Sidebar ─────────────────────────────────────────────────────────
-    with gr.Sidebar(label="Detail", open=False, position="right", width=400,
-                    elem_id="detail-sidebar"):
-        right_stats_md  = gr.Markdown()
-        right_detail_md = gr.Markdown("*Run an analysis to see details here.*")
-
     # ── Main canvas ───────────────────────────────────────────────────────────
     gr.HTML(_HEADER_HTML)
 
-    problem_input = gr.Textbox(
-        show_label=False,
-        placeholder="Describe the problem, decision, or document you want analysed — e.g. Should I build a B2B SaaS for restaurant inventory management? · Upload your CV and ask: what are my strengths and gaps, what roles fit, and what salary range should I target?",
-        lines=4, elem_id="problem",
-    )
-    with gr.Accordion("📎 Attach documents (PDF, TXT, MD, DOCX, PPTX, XLSX)", open=False):
-        document_upload = gr.File(
-            show_label=False,
-            file_types=[".pdf", ".txt", ".md", ".rst", ".docx", ".pptx", ".xlsx", ".xls"],
-            file_count="multiple",
-            type="filepath",
-            elem_id="doc-upload",
-        )
-    submit_btn = gr.Button("Analyze", variant="primary", size="lg",
-                           elem_classes=["analyze-btn"], elem_id="analyze-btn")
+    with gr.Tabs(elem_id="main-tabs") as main_tabs:
 
-    with gr.Group(visible=False) as status_group:
-        status_html = gr.HTML()
-
-    with gr.Group(visible=False) as results_group:
-        core_out = gr.Markdown()
-        with gr.Row():
-            show_detail_btn = gr.Button("📊 Analysis detail", size="sm",
-                                        variant="secondary", elem_id="show-detail")
-
-        followup_chatbot = gr.Chatbot(
-            label="Follow-up questions",
-            show_label=False,
-            height=400,
-            elem_classes=["follow-qa-area"],
-            layout="bubble",
-            buttons=["copy"],
-        )
-
-        with gr.Row(elem_classes=["followup-row"]):
-            followup_input = gr.Textbox(
-                show_label=False, placeholder="Ask a follow-up question…",
-                lines=1, scale=9, elem_id="followup",
+        with gr.TabItem("💬 Chat", id="chat-tab"):
+            followup_chatbot = gr.Chatbot(
+                show_label=False,
+                height=400,
+                elem_classes=["follow-qa-area"],
+                layout="bubble",
+                buttons=["copy"],
+                placeholder="Describe your problem here — ask questions, upload documents, and chat before clicking Start Research. Or just type your question and hit Start Research.",
             )
-            followup_btn = gr.Button("↵", scale=1, variant="secondary",
-                                     elem_id="followup-btn")
+
+            with gr.Row(elem_classes=["followup-row"]):
+                chat_upload_btn = gr.UploadButton(
+                    "📎",
+                    file_types=[".pdf", ".txt", ".md", ".rst", ".docx", ".pptx", ".xlsx", ".xls"],
+                    file_count="multiple",
+                    type="filepath",
+                    scale=1,
+                    elem_classes=["chat-upload-btn"],
+                    elem_id="chat-upload",
+                )
+                followup_input = gr.Textbox(
+                    show_label=False, placeholder="Ask a question or describe your problem…",
+                    lines=1, scale=8, elem_id="followup",
+                )
+                followup_btn = gr.Button("↵", scale=1, variant="secondary",
+                                         elem_id="followup-btn")
+
+            submit_btn = gr.Button("Start Research", variant="primary", size="lg",
+                                   elem_classes=["analyze-btn"], elem_id="analyze-btn")
+
+        with gr.TabItem("📊 Results", id="results-tab"):
+            status_html = gr.HTML()
+
+            with gr.Accordion("📋 Synthesis", open=True, elem_id="synthesis-section"):
+                core_out = gr.Markdown("*Run an analysis to see results here.*")
+
+            with gr.Accordion("📊 Stats & Sources", open=True, elem_id="stats-section"):
+                right_stats_md = gr.Markdown()
+
+            with gr.Accordion("🔍 Agent Breakdown", open=False, elem_id="breakdown-section"):
+                right_detail_md = gr.Markdown("*Agent detail appears here after analysis.*")
+
+            with gr.Row(elem_classes=["export-trigger-row"]):
+                export_btn = gr.Button(
+                    "Export ↓", variant="secondary", scale=0,
+                    min_width=120, elem_id="export-btn",
+                )
+
+            with gr.Column(visible=False, elem_id="export-options") as export_options:
+                with gr.Row():
+                    export_sections = gr.CheckboxGroup(
+                        choices=["Synthesis", "Stats & Sources", "Agent Breakdown"],
+                        value=["Synthesis", "Stats & Sources", "Agent Breakdown"],
+                        label="Sections",
+                        scale=3,
+                    )
+                    export_format = gr.Radio(
+                        choices=["PDF", "Word", "Text"],
+                        value="PDF",
+                        label="Format",
+                        scale=1,
+                    )
+                with gr.Row(elem_classes=["export-actions"]):
+                    export_cancel_btn = gr.Button("Cancel", scale=1, variant="secondary")
+                    export_download_btn = gr.Button("Download", scale=2, variant="primary")
+                export_file = gr.File(show_label=False, visible=False,
+                                      elem_id="export-file")
 
     # ── Wiring ────────────────────────────────────────────────────────────────
     def _load_brief(p):
@@ -640,34 +1093,75 @@ with gr.Blocks(title="Fusen — Multi-Agent AI Analysis") as demo:
         fn=_load_brief, inputs=[brief_upload], outputs=[brief_area, brief_load_info],
     )
 
+    chat_upload_btn.upload(
+        fn=_handle_chat_upload,
+        inputs=[chat_upload_btn, documents_state, followup_chatbot],
+        outputs=[documents_state, followup_chatbot],
+    )
+
     submit_btn.click(
-        fn=run_analysis,
+        fn=_start_research,
         inputs=[
-            problem_input,
+            qa_history_state,
             model_dd,
             api_key_input,
             tavily_input,
             brief_area,
-            document_upload,
+            documents_state,
         ],
         outputs=[
             status_html, core_out, right_detail_md, right_stats_md,
-            status_group, results_group, followup_chatbot,
-            result_state, mediator_state, qa_history_state,
+            followup_chatbot, result_state, mediator_state, qa_history_state,
+            main_tabs,
         ],
     )
 
-    _fu_in  = [followup_input, result_state, mediator_state, qa_history_state]
-    _fu_out = [followup_chatbot, qa_history_state, followup_input]
+    _fu_in = [
+        followup_input, result_state, mediator_state, qa_history_state,
+        model_dd, api_key_input, brief_area, documents_state,
+    ]
+    _fu_out = [followup_chatbot, qa_history_state, followup_input, analysis_trigger_state]
 
-    followup_btn.click(fn=run_followup, inputs=_fu_in, outputs=_fu_out)
-    followup_input.submit(fn=run_followup, inputs=_fu_in, outputs=_fu_out)
+    _then_in = [
+        analysis_trigger_state, qa_history_state, model_dd, api_key_input,
+        tavily_input, brief_area, documents_state,
+    ]
+    _then_out = [
+        status_html, core_out, right_detail_md, right_stats_md,
+        followup_chatbot, result_state, mediator_state, qa_history_state,
+        main_tabs, analysis_trigger_state,
+    ]
 
-    show_detail_btn.click(
-        fn=_show_detail_in_sidebar, inputs=[result_state], outputs=[right_detail_md],
-    )
+    followup_btn.click(fn=run_followup, inputs=_fu_in, outputs=_fu_out)\
+        .then(fn=maybe_start_analysis, inputs=_then_in, outputs=_then_out)
+    followup_input.submit(fn=run_followup, inputs=_fu_in, outputs=_fu_out)\
+        .then(fn=maybe_start_analysis, inputs=_then_in, outputs=_then_out)
+
     save_memory_btn.click(
         fn=save_brief, inputs=[brief_area], outputs=[brief_download],
+    )
+
+    def _toggle_export(is_open):
+        new = not is_open
+        label = "Export ↑" if new else "Export ↓"
+        return gr.update(visible=new), new, gr.update(value=label)
+
+    def _close_export():
+        return gr.update(visible=False), False, gr.update(value="Export ↓")
+
+    export_btn.click(
+        fn=_toggle_export,
+        inputs=[export_panel_state],
+        outputs=[export_options, export_panel_state, export_btn],
+    )
+    export_cancel_btn.click(
+        fn=_close_export,
+        outputs=[export_options, export_panel_state, export_btn],
+    )
+    export_download_btn.click(
+        fn=_export_analysis,
+        inputs=[result_state, export_sections, export_format],
+        outputs=[export_file],
     )
 
 demo.launch(server_name="0.0.0.0", server_port=7860, ssr_mode=False,

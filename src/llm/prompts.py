@@ -352,6 +352,42 @@ def build_gap_check_prompt(
     return system, user
 
 
+def build_pre_research_prompt(
+    problem: str,
+    doc_text: Optional[str],
+    user_context: Optional[str],
+    question: str,
+    history: list | None = None,
+) -> tuple[str, list]:
+    """Return (system_prompt, messages) for pre-research chat.
+
+    Lets the user verify document understanding and clarify their problem
+    before clicking Start Research. `history` is a list of (user, assistant)
+    tuples from prior turns; `question` is the new user message to append.
+    """
+    system = (
+        "You are a research assistant preparing for a deep multi-agent analysis. "
+        "Your job right now is to help the user clarify their problem and confirm you "
+        "have understood any provided documents or context — before the full research begins. "
+        "Be conversational and concise. When the user is satisfied, they will click "
+        "**Start Research**."
+    )
+    if problem and problem.strip():
+        system += f"\n\nProblem / question the user wants analysed:\n{problem.strip()}"
+    if doc_text and doc_text.strip():
+        system += f"\n\nDocument content:\n{doc_text.strip()}"
+    if user_context and user_context.strip():
+        system += f"\n\nUser context / constraints:\n{user_context.strip()}"
+
+    messages: list = []
+    for q, a in (history or []):
+        messages.append({"role": "user", "content": q})
+        messages.append({"role": "assistant", "content": a})
+    messages.append({"role": "user", "content": question})
+
+    return system, messages
+
+
 def build_followup_prompt(
     problem: str,
     analysis: "FinalAnalysis",
