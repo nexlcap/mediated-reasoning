@@ -150,11 +150,43 @@ body,
 /* ── Follow-up area ── */
 .follow-qa-area { margin-top: 8px; }
 .follow-qa-area p { line-height: 1.65; }
+
+/* ── ChatGPT-style input pill ── */
 .followup-row {
-    margin-top: 16px;
-    padding-top: 16px;
-    border-top: 1px solid var(--border-color-primary, #e5e7eb);
-    align-items: flex-end !important;
+    margin-top: 12px !important;
+    padding: 5px 6px 5px 4px !important;
+    background: var(--background-fill-primary, #fff) !important;
+    border: 1.5px solid var(--border-color-primary, #d9d9e3) !important;
+    border-radius: 28px !important;
+    align-items: center !important;
+    gap: 2px !important;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.06) !important;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease !important;
+}
+.followup-row:focus-within {
+    border-color: #f97316 !important;
+    box-shadow: 0 0 0 3px rgba(249,115,22,0.10), 0 2px 12px rgba(0,0,0,0.06) !important;
+}
+/* Strip all borders/backgrounds from elements nested inside the pill */
+.followup-row .block,
+.followup-row .wrap,
+.followup-row .container,
+.followup-row label {
+    border: none !important;
+    box-shadow: none !important;
+    background: transparent !important;
+    padding: 0 !important;
+    margin: 0 !important;
+}
+.followup-row textarea {
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
+    background: transparent !important;
+    resize: none !important;
+    padding: 6px 8px !important;
+    font-size: 0.95em !important;
+    line-height: 1.5 !important;
 }
 
 /* ── Resizable sidebars ──
@@ -219,11 +251,46 @@ body,
     min-height: 40px !important;
 }
 
-/* ── 📎 upload button — icon-only, match send button size ── */
+/* ── 📎 upload button — ghost circle inside pill ── */
 .chat-upload-btn button {
-    min-width: 44px !important;
-    max-width: 44px !important;
+    border-radius: 50% !important;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    width: 34px !important;
+    min-width: 34px !important;
+    max-width: 34px !important;
+    height: 34px !important;
     padding: 0 !important;
+    color: var(--body-text-color-subdued, #888) !important;
+    font-size: 1.05em !important;
+    flex-shrink: 0 !important;
+    transition: background 0.12s ease !important;
+}
+.chat-upload-btn button:hover {
+    background: var(--background-fill-secondary, #f3f4f6) !important;
+}
+
+/* ── ↑ send button — solid dark circle inside pill ── */
+#followup-btn button {
+    border-radius: 50% !important;
+    background: #1a1a1a !important;
+    color: #fff !important;
+    border: none !important;
+    box-shadow: none !important;
+    width: 34px !important;
+    min-width: 34px !important;
+    max-width: 34px !important;
+    height: 34px !important;
+    padding: 0 !important;
+    font-size: 1.0em !important;
+    flex-shrink: 0 !important;
+    transition: background 0.12s ease !important;
+}
+#followup-btn button:hover {
+    background: #333 !important;
+    transform: none !important;
+    box-shadow: none !important;
 }
 
 /* ── Research sidebar — section header weight ── */
@@ -1034,9 +1101,9 @@ with gr.Blocks(title="Fusen — Multi-Agent AI Analysis") as demo:
                 )
                 followup_input = gr.Textbox(
                     show_label=False, placeholder="Ask a question or describe your problem…",
-                    lines=1, scale=8, elem_id="followup",
+                    lines=1, max_lines=6, scale=8, elem_id="followup",
                 )
-                followup_btn = gr.Button("↵", scale=1, variant="secondary",
+                followup_btn = gr.Button("↑", scale=1, variant="secondary",
                                          elem_id="followup-btn")
 
             submit_btn = gr.Button("Start Research", variant="primary", size="lg",
