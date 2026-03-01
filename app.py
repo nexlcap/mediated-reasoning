@@ -263,6 +263,18 @@ body,
     min-height: 40px !important;
 }
 
+/* ── pill icon buttons — outer wrapper constrained to icon size ── */
+.chat-upload-btn,
+#followup-btn {
+    flex: 0 0 32px !important;
+    width: 32px !important;
+    min-width: 32px !important;
+    max-width: 32px !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+}
+
 /* ── pill icon buttons — shared geometry ── */
 .chat-upload-btn button,
 #followup-btn button {
