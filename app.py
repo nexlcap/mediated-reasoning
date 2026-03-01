@@ -154,7 +154,7 @@ body,
 /* ── ChatGPT-style input pill ── */
 .followup-row {
     margin-top: 12px !important;
-    padding: 5px 6px 5px 4px !important;
+    padding: 4px 6px 4px 4px !important;
     background: var(--background-fill-primary, #fff) !important;
     border: 1.5px solid var(--border-color-primary, #d9d9e3) !important;
     border-radius: 28px !important;
@@ -167,26 +167,38 @@ body,
     border-color: #f97316 !important;
     box-shadow: 0 0 0 3px rgba(249,115,22,0.10), 0 2px 12px rgba(0,0,0,0.06) !important;
 }
-/* Strip all borders/backgrounds from elements nested inside the pill */
+/* Flatten every Gradio wrapper inside the pill */
 .followup-row .block,
+.followup-row .form,
 .followup-row .wrap,
+.followup-row .gap,
 .followup-row .container,
+.followup-row .scroll-hide,
 .followup-row label {
     border: none !important;
     box-shadow: none !important;
     background: transparent !important;
     padding: 0 !important;
     margin: 0 !important;
+    min-height: unset !important;
+    height: auto !important;
+    align-self: center !important;
 }
 .followup-row textarea {
+    display: block !important;
     border: none !important;
     outline: none !important;
     box-shadow: none !important;
     background: transparent !important;
     resize: none !important;
-    padding: 6px 8px !important;
+    padding: 5px 8px !important;
+    margin: 0 !important;
+    min-height: 32px !important;
+    max-height: 160px !important;
+    line-height: 22px !important;
     font-size: 0.95em !important;
-    line-height: 1.5 !important;
+    align-self: center !important;
+    overflow-y: auto !important;
 }
 
 /* ── Resizable sidebars ──
