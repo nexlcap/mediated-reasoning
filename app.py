@@ -938,16 +938,45 @@ _PDF_FONT_PAIRS = [
 ]
 
 
-def _export_as_pdf(parts: list) -> gr.update:
+def _export_as_pdf(parts: list, topic: str = "") -> gr.update:
     from fpdf import FPDF
     from fpdf.enums import XPos, YPos
+
+    # Colour palette
+    _C = {
+        "orange": (220,  90,  20),
+        "dark":   ( 30,  30,  30),
+        "sec_bg": (243, 244, 246),
+        "sec_fg": ( 50,  50,  70),
+        "sub":    ( 50,  80, 140),
+        "gray":   (110, 110, 110),
+        "red":    (181,  42,  42),
+        "yellow": (140,  96,   0),
+        "green":  ( 30, 124,  58),
+        "quote":  (100, 100, 100),
+        "rule":   (200, 200, 200),
+    }
+
+    _NON_ASCII_RE = re.compile(r'[^\x00-\x7E]+')
+
+    def _strip_inline_md(t: str) -> str:
+        t = re.sub(r'\*\*([^*]+)\*\*', r'\1', t)
+        t = re.sub(r'\*([^*]+)\*', r'\1', t)
+        t = re.sub(r'`([^`]+)`', r'\1', t)
+        return t
+
+    def _flag_color(text: str):
+        lo = text.lower().lstrip()
+        if lo.startswith("red:"):    return _C["red"]
+        if lo.startswith("yellow:"): return _C["yellow"]
+        if lo.startswith("green:"):  return _C["green"]
+        return None
 
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
-    pdf.set_left_margin(20)
-    pdf.set_right_margin(20)
-    pdf.set_x(20)
+    pdf.set_margins(20, 15, 20)
+    W = pdf.w - pdf.l_margin - pdf.r_margin
 
     fn = "Helvetica"
     for reg, bold in _PDF_FONT_PAIRS:
@@ -959,43 +988,130 @@ def _export_as_pdf(parts: list) -> gr.update:
             break
 
     def safe(t: str) -> str:
+        t = _NON_ASCII_RE.sub('', t)
         if fn == "Helvetica":
             return t.encode("latin-1", errors="replace").decode("latin-1")
         return t
 
-    def mc(text, h=5, **kw):
-        """multi_cell with cursor always reset to l_margin."""
-        pdf.multi_cell(0, h, text,
+    def color(rgb):
+        pdf.set_text_color(*rgb)
+
+    def mc(text, h=5, indent=0, **kw):
+        pdf.set_x(pdf.l_margin + indent)
+        pdf.multi_cell(W - indent, h, text,
                        new_x=XPos.LMARGIN, new_y=YPos.NEXT, **kw)
 
-    # Document title
-    pdf.set_font(fn, style="B", size=18)
-    pdf.set_text_color(249, 115, 22)
-    mc(safe("Fusen Analysis Report"), h=9)
-    pdf.set_text_color(30, 30, 30)
-    pdf.ln(5)
-
-    for title, md in parts:
-        # Section heading bar
-        pdf.set_font(fn, style="B", size=12)
-        pdf.set_fill_color(243, 244, 246)
-        pdf.set_text_color(50, 50, 70)
-        mc(safe(title), h=8, fill=True)
-        pdf.set_text_color(30, 30, 30)
+    def hline():
+        y = pdf.get_y() + 1
+        pdf.set_draw_color(*_C["rule"])
+        pdf.line(pdf.l_margin, y, pdf.l_margin + W, y)
+        pdf.set_draw_color(0, 0, 0)
         pdf.ln(3)
 
-        # Body — strip markdown, render line by line
-        plain = _md_to_plain(_clean_md(md))
+    # ── Document title ───────────────────────────────────────────────────────
+    pdf.set_font(fn, style="B", size=20)
+    color(_C["orange"])
+    mc("Fusen Analysis Report", h=10)
+    color(_C["dark"])
+    pdf.ln(1)
+    hline()
+    pdf.ln(2)
+
+    # ── Sections ─────────────────────────────────────────────────────────────
+    for title, md in parts:
+        # Section header bar
+        y0 = pdf.get_y()
+        pdf.set_fill_color(*_C["sec_bg"])
+        pdf.rect(pdf.l_margin, y0, W, 9, "F")
+        pdf.set_y(y0 + 0.5)
+        pdf.set_font(fn, style="B", size=12)
+        color(_C["sec_fg"])
+        mc(safe(title), h=8)
+        color(_C["dark"])
+        pdf.ln(3)
+
+        cleaned = _NON_ASCII_RE.sub('', _clean_md(md))
         pdf.set_font(fn, size=10)
-        for line in plain.splitlines():
-            s = line.strip()
+
+        for raw_line in cleaned.splitlines():
+            s = raw_line.strip()
+
             if not s:
-                pdf.ln(2)
+                pdf.ln(1.5)
                 continue
-            mc(safe(s))
+
+            # Horizontal rule
+            if re.match(r'^-{3,}$', s):
+                hline()
+                continue
+
+            # ## heading
+            m = re.match(r'^#{2}\s+(.*)', s)
+            if m:
+                heading = safe(_strip_inline_md(m.group(1)))
+                pdf.set_font(fn, style="B", size=11)
+                color(_C["sub"])
+                mc(heading, h=6)
+                color(_C["dark"])
+                pdf.set_font(fn, size=10)
+                pdf.ln(0.5)
+                continue
+
+            # ### heading
+            m = re.match(r'^#{3}\s+(.*)', s)
+            if m:
+                heading = safe(_strip_inline_md(m.group(1)))
+                pdf.set_font(fn, style="B", size=10)
+                color(_C["gray"])
+                mc(heading, h=5)
+                color(_C["dark"])
+                pdf.set_font(fn, size=10)
+                continue
+
+            # **N.** text  (numbered item)
+            m = re.match(r'^\*\*(\d+)\.\*\*\s+(.*)', s)
+            if m:
+                num = m.group(1) + "."
+                text = safe(_strip_inline_md(m.group(2)))
+                pdf.set_font(fn, style="B", size=10)
+                pdf.set_x(pdf.l_margin + 4)
+                pdf.cell(8, 5, num, new_x=XPos.RIGHT, new_y=YPos.TOP)
+                pdf.set_font(fn, size=10)
+                pdf.multi_cell(W - 12, 5, text,
+                               new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                pdf.ln(1)
+                continue
+
+            # Bullet point
+            if re.match(r'^[*\-]\s', s) or s.startswith('* '):
+                text = re.sub(r'^[*\-]\s+', '', s)
+                fc = _flag_color(text)
+                text_clean = safe(_strip_inline_md(text))
+                if fc:
+                    color(fc)
+                mc("* " + text_clean, h=5, indent=4)
+                if fc:
+                    color(_C["dark"])
+                continue
+
+            # Blockquote
+            if s.startswith('>'):
+                text = re.sub(r'^>\s*', '', s)
+                text = safe(_strip_inline_md(text))
+                color(_C["quote"])
+                mc(text, h=5, indent=6)
+                color(_C["dark"])
+                continue
+
+            # Plain paragraph
+            text = safe(_strip_inline_md(s))
+            mc(text, h=5)
+
         pdf.ln(6)
 
-    tmp = Path(tempfile.mktemp(suffix=".pdf"))
+    slug = re.sub(r'[^a-z0-9]+', '-', topic.lower()).strip('-')[:60] if topic else ""
+    fname = f"fusen-analysis-{slug}.pdf" if slug else "fusen-analysis.pdf"
+    tmp = Path(tempfile.gettempdir()) / fname
     pdf.output(str(tmp))
     return gr.update(visible=True, value=str(tmp))
 
@@ -1010,7 +1126,7 @@ def _export_analysis(result, sections, fmt):
         return _export_as_text(parts)
     if fmt == "Word":
         return _export_as_docx(parts)
-    return _export_as_pdf(parts)
+    return _export_as_pdf(parts, topic=result.problem if result else "")
 
 
 # ── UI ────────────────────────────────────────────────────────────────────────
