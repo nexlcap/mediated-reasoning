@@ -737,8 +737,8 @@ def run_followup(
         )
         client = ClaudeClient(model=model, api_key=api_key.strip())
 
-        # Show user message immediately
-        yield _to_chatbot_msgs(history) + [{"role": "user", "content": q}], history, "", False
+        # Show user message immediately — don't update qa_history_state yet
+        yield _to_chatbot_msgs(history) + [{"role": "user", "content": q}], gr.update(), "", False
 
         full = ""
         for chunk in client.chat_stream(system, messages):
@@ -747,7 +747,7 @@ def run_followup(
                 _to_chatbot_msgs(history)
                 + [{"role": "user",      "content": q},
                    {"role": "assistant", "content": full}],
-                history, "", False,
+                gr.update(), "", False,
             )
 
         final = history + [(q, full)]
@@ -756,11 +756,11 @@ def run_followup(
     else:
         # ── Post-research phase ───────────────────────────────────────────────
         if mediator is None:
-            yield _to_chatbot_msgs(history), history, "", False
+            yield _to_chatbot_msgs(history), gr.update(), "", False
             return
 
-        # Show user message immediately; assistant slot will fill via streaming
-        yield _to_chatbot_msgs(history) + [{"role": "user", "content": q}], history, "", False
+        # Show user message immediately — don't update qa_history_state yet
+        yield _to_chatbot_msgs(history) + [{"role": "user", "content": q}], gr.update(), "", False
 
         full = ""
         for chunk in mediator.followup_stream(result, q, history):
@@ -769,7 +769,7 @@ def run_followup(
                 _to_chatbot_msgs(history)
                 + [{"role": "user",      "content": q},
                    {"role": "assistant", "content": full}],
-                history, "", False,
+                gr.update(), "", False,
             )
 
         final = history + [(q, full)]
