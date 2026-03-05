@@ -556,9 +556,12 @@ def _synthesize_problem(history, model, api_key) -> str:
 def save_brief(brief_text: str, result=None, qa_history=None, pre_research=None):
     parts = []
 
-    if pre_research:
+    # Use the latched pre-research history if available; otherwise fall back to
+    # qa_history_state directly (user saving before research has started).
+    pre_conv = pre_research if pre_research else (qa_history if result is None else [])
+    if pre_conv:
         lines = ["## Pre-research conversation", ""]
-        for q, a in pre_research:
+        for q, a in pre_conv:
             lines.append(f"**User:** {q}")
             lines.append(f"**Assistant:** {a}")
             lines.append("")
