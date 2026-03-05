@@ -1,6 +1,7 @@
+import base64
+import io
 import queue
 import re
-import tempfile
 import threading
 from pathlib import Path
 from typing import List, Optional
@@ -574,10 +575,14 @@ def save_brief(brief_text: str, result=None, qa_history=None, pre_research=None)
         parts.append(brief_text.strip())
 
     content = "\n\n---\n\n".join(parts) if parts else ""
-    tmp = Path(tempfile.mkdtemp())
-    brief_path = tmp / "memory.md"
-    brief_path.write_text(content.strip() + "\n", encoding="utf-8")
-    return gr.update(visible=True, value=str(brief_path))
+    b64 = base64.b64encode((content.strip() + "\n").encode("utf-8")).decode()
+    html = (
+        f'<a href="data:text/markdown;base64,{b64}" download="memory.md" '
+        f'style="display:inline-block;padding:6px 14px;background:#f97316;'
+        f'color:#fff;border-radius:6px;text-decoration:none;font-size:0.9em">'
+        f'⬇ Download memory.md</a>'
+    )
+    return gr.update(visible=True, value=html)
 
 
 # ── Analysis ──────────────────────────────────────────────────────────────────
@@ -883,9 +888,14 @@ def _export_as_text(parts: list) -> gr.update:
     lines = ["# Fusen Analysis Report", ""]
     for title, md in parts:
         lines += [f"## {title}", "", _clean_md(md), "", "---", ""]
-    tmp = Path(tempfile.mktemp(suffix=".md"))
-    tmp.write_text("\n".join(lines), encoding="utf-8")
-    return gr.update(visible=True, value=str(tmp))
+    b64 = base64.b64encode("\n".join(lines).encode("utf-8")).decode()
+    html = (
+        f'<a href="data:text/markdown;base64,{b64}" download="fusen-analysis.md" '
+        f'style="display:inline-block;padding:6px 14px;background:#f97316;'
+        f'color:#fff;border-radius:6px;text-decoration:none;font-size:0.9em">'
+        f'⬇ Download fusen-analysis.md</a>'
+    )
+    return gr.update(visible=True, value=html)
 
 
 # ── Word export ──
@@ -939,9 +949,17 @@ def _export_as_docx(parts: list) -> gr.update:
     for title, md in parts:
         doc.add_heading(title, 1)
         _md_body_to_docx(doc, _clean_md(md))
-    tmp = Path(tempfile.mktemp(suffix=".docx"))
-    doc.save(str(tmp))
-    return gr.update(visible=True, value=str(tmp))
+    buf = io.BytesIO()
+    doc.save(buf)
+    b64 = base64.b64encode(buf.getvalue()).decode()
+    mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    html = (
+        f'<a href="data:{mime};base64,{b64}" download="fusen-analysis.docx" '
+        f'style="display:inline-block;padding:6px 14px;background:#f97316;'
+        f'color:#fff;border-radius:6px;text-decoration:none;font-size:0.9em">'
+        f'⬇ Download fusen-analysis.docx</a>'
+    )
+    return gr.update(visible=True, value=html)
 
 
 # ── PDF export ──
@@ -1131,9 +1149,14 @@ def _export_as_pdf(parts: list, topic: str = "") -> gr.update:
 
     slug = re.sub(r'[^a-z0-9]+', '-', topic.lower()).strip('-')[:60] if topic else ""
     fname = f"fusen-analysis-{slug}.pdf" if slug else "fusen-analysis.pdf"
-    tmp = Path(tempfile.gettempdir()) / fname
-    pdf.output(str(tmp))
-    return gr.update(visible=True, value=str(tmp))
+    b64 = base64.b64encode(pdf.output()).decode()
+    html = (
+        f'<a href="data:application/pdf;base64,{b64}" download="{fname}" '
+        f'style="display:inline-block;padding:6px 14px;background:#f97316;'
+        f'color:#fff;border-radius:6px;text-decoration:none;font-size:0.9em">'
+        f'⬇ Download {fname}</a>'
+    )
+    return gr.update(visible=True, value=html)
 
 
 def _export_analysis(result, sections, fmt):
@@ -1239,8 +1262,7 @@ with gr.Blocks(title="Fusen — Multi-Agent AI Analysis") as demo:
             save_memory_btn = gr.Button("Save memory", variant="secondary",
                                         elem_id="save-session")
         brief_load_info = gr.Markdown(visible=False)
-        brief_download  = gr.File(show_label=False, visible=False,
-                                  elem_id="memory-download")
+        brief_download  = gr.HTML(visible=False, elem_id="memory-download")
         brief_area = gr.Textbox(visible=False, elem_id="memory")
 
 
@@ -1315,8 +1337,7 @@ with gr.Blocks(title="Fusen — Multi-Agent AI Analysis") as demo:
                 with gr.Row(elem_classes=["export-actions"]):
                     export_cancel_btn = gr.Button("Cancel", scale=1, variant="secondary")
                     export_download_btn = gr.Button("Download", scale=2, variant="primary")
-                export_file = gr.File(show_label=False, visible=False,
-                                      elem_id="export-file")
+                export_file = gr.HTML(visible=False, elem_id="export-file")
 
     # ── Wiring ────────────────────────────────────────────────────────────────
     def _load_brief(p):
