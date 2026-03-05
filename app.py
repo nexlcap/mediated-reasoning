@@ -553,13 +553,24 @@ def _synthesize_problem(history, model, api_key) -> str:
 
 
 # ── Project helpers ───────────────────────────────────────────────────────────
-def save_brief(brief_text: str, result=None, qa_history=None):
+def save_brief(brief_text: str, result=None, qa_history=None, pre_research=None):
     parts = []
+
+    if pre_research:
+        lines = ["## Pre-research conversation", ""]
+        for q, a in pre_research:
+            lines.append(f"**User:** {q}")
+            lines.append(f"**Assistant:** {a}")
+            lines.append("")
+        parts.append("\n".join(lines).strip())
+
     if result is not None:
         parts.append(format_session_log(result, qa_history or []))
+
     if brief_text and brief_text.strip():
         parts.append(brief_text.strip())
-    content = "\n\n".join(parts) if parts else ""
+
+    content = "\n\n---\n\n".join(parts) if parts else ""
     tmp = Path(tempfile.mkdtemp())
     brief_path = tmp / "memory.md"
     brief_path.write_text(content.strip() + "\n", encoding="utf-8")
@@ -1195,6 +1206,7 @@ with gr.Blocks(title="Fusen — Multi-Agent AI Analysis") as demo:
     result_state           = gr.State(None)
     mediator_state         = gr.State(None)
     qa_history_state       = gr.State([])
+    pre_research_state     = gr.State([])
     documents_state        = gr.State([])
     analysis_trigger_state = gr.State(False)
     export_panel_state     = gr.State(False)
@@ -1322,21 +1334,21 @@ with gr.Blocks(title="Fusen — Multi-Agent AI Analysis") as demo:
         outputs=[documents_state, followup_chatbot],
     )
 
+    def _latch_history(history):
+        return list(history or [])
+
+    _research_inputs = [
+        qa_history_state, model_dd, api_key_input, tavily_input, brief_area, documents_state,
+    ]
+    _research_outputs = [
+        status_html, core_out, right_detail_md, right_stats_md,
+        followup_chatbot, result_state, mediator_state, qa_history_state, main_tabs,
+    ]
+
     submit_btn.click(
-        fn=_start_research,
-        inputs=[
-            qa_history_state,
-            model_dd,
-            api_key_input,
-            tavily_input,
-            brief_area,
-            documents_state,
-        ],
-        outputs=[
-            status_html, core_out, right_detail_md, right_stats_md,
-            followup_chatbot, result_state, mediator_state, qa_history_state,
-            main_tabs,
-        ],
+        fn=_latch_history, inputs=[qa_history_state], outputs=[pre_research_state],
+    ).then(
+        fn=_start_research, inputs=_research_inputs, outputs=_research_outputs,
     )
 
     _fu_in = [
@@ -1356,12 +1368,16 @@ with gr.Blocks(title="Fusen — Multi-Agent AI Analysis") as demo:
     ]
 
     followup_btn.click(fn=run_followup, inputs=_fu_in, outputs=_fu_out)\
+        .then(fn=_latch_history, inputs=[qa_history_state], outputs=[pre_research_state])\
         .then(fn=maybe_start_analysis, inputs=_then_in, outputs=_then_out)
     followup_input.submit(fn=run_followup, inputs=_fu_in, outputs=_fu_out)\
+        .then(fn=_latch_history, inputs=[qa_history_state], outputs=[pre_research_state])\
         .then(fn=maybe_start_analysis, inputs=_then_in, outputs=_then_out)
 
     save_memory_btn.click(
-        fn=save_brief, inputs=[brief_area, result_state, qa_history_state], outputs=[brief_download],
+        fn=save_brief,
+        inputs=[brief_area, result_state, qa_history_state, pre_research_state],
+        outputs=[brief_download],
     )
 
     def _toggle_export(is_open):
