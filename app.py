@@ -10,7 +10,7 @@ import gradio as gr
 from src.llm.client import ClaudeClient
 from src.llm.prompts import build_pre_research_prompt
 from src.mediator import Mediator
-from src.project_memory import QAPair
+from src.project_memory import QAPair, format_session_log
 from src.utils.document_loader import load_document, DocumentLoadError
 from src.utils.formatters import (
     format_core_md,
@@ -553,10 +553,16 @@ def _synthesize_problem(history, model, api_key) -> str:
 
 
 # ── Project helpers ───────────────────────────────────────────────────────────
-def save_brief(brief_text: str):
+def save_brief(brief_text: str, result=None, qa_history=None):
+    parts = []
+    if result is not None:
+        parts.append(format_session_log(result, qa_history or []))
+    if brief_text and brief_text.strip():
+        parts.append(brief_text.strip())
+    content = "\n\n".join(parts) if parts else ""
     tmp = Path(tempfile.mkdtemp())
     brief_path = tmp / "memory.md"
-    brief_path.write_text((brief_text or "").strip() + "\n", encoding="utf-8")
+    brief_path.write_text(content.strip() + "\n", encoding="utf-8")
     return gr.update(visible=True, value=str(brief_path))
 
 
@@ -1355,7 +1361,7 @@ with gr.Blocks(title="Fusen — Multi-Agent AI Analysis") as demo:
         .then(fn=maybe_start_analysis, inputs=_then_in, outputs=_then_out)
 
     save_memory_btn.click(
-        fn=save_brief, inputs=[brief_area], outputs=[brief_download],
+        fn=save_brief, inputs=[brief_area, result_state, qa_history_state], outputs=[brief_download],
     )
 
     def _toggle_export(is_open):
